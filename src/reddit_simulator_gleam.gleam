@@ -1,16 +1,15 @@
 import gleam/io
-import reddit_simulator_gleam/test_actors
+import reddit_simulator_gleam/comprehensive_tests
 
 pub fn main() {
-  io.println("=== Reddit Simulator Actor Communication Test ===")
-  io.println("Testing if Master and User actors are actually communicating...")
+  io.println("=== Reddit Simulator Comprehensive Test Suite ===")
+  io.println("Running all tests including upvote functionality...")
   io.println("")
 
-  // Run the actor communication tests
-  test_actors.test_master_engine_actor()
+  // Run all comprehensive tests
+  comprehensive_tests.run_all_tests()
 
   io.println("")
-  io.println("=== Actor Communication Test Complete ===")
-  io.println("If you see successful user registrations and retrievals above,")
-  io.println("then the Master and User actors are working correctly!")
+  io.println("=== All Tests Complete ===")
+  io.println("The Reddit Simulator is working correctly!")
 }

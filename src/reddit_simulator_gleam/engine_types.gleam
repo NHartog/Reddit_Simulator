@@ -1,239 +1,10 @@
 import gleam/dict.{type Dict}
 import gleam/erlang/process
 import gleam/option.{type Option}
-
-// =============================================================================
-// CORE DATA TYPES
-// =============================================================================
-// These are the fundamental domain models used throughout the system
-
-pub type User {
-  User(id: String)
-}
-
-pub type Subreddit {
-  Subreddit(
-    id: String,
-    name: String,
-    description: String,
-    created_at: Int,
-    subscriber_count: Int,
-    moderator_ids: List(String),
-  )
-}
-
-pub type SubredditWithMembers {
-  SubredditWithMembers(subreddit: Subreddit, member_ids: List(String))
-}
-
-pub type Post {
-  Post(
-    id: String,
-    title: String,
-    content: String,
-    author_id: String,
-    subreddit_id: String,
-    created_at: Int,
-    score: Int,
-    upvotes: Int,
-    downvotes: Int,
-    comment_count: Int,
-  )
-}
-
-pub type Comment {
-  Comment(
-    id: String,
-    content: String,
-    author_id: String,
-    post_id: String,
-    parent_comment_id: Option(String),
-    created_at: Int,
-    score: Int,
-    upvotes: Int,
-    downvotes: Int,
-    depth: Int,
-  )
-}
-
-pub type Vote {
-  Vote(
-    id: String,
-    user_id: String,
-    target_id: String,
-    target_type: VoteTarget,
-    vote_type: VoteType,
-    created_at: Int,
-  )
-}
-
-pub type VoteTarget {
-  PostTarget
-  CommentTarget
-}
-
-pub type VoteType {
-  Upvote
-  Downvote
-}
-
-pub type DirectMessage {
-  DirectMessage(
-    id: String,
-    sender_id: String,
-    recipient_id: String,
-    content: String,
-    created_at: Int,
-    is_read: Bool,
-  )
-}
-
-pub type FeedItem {
-  FeedItem(post: Post, subreddit_name: String, author_username: String)
-}
-
-// HTTP-style status codes for actor responses
-pub type StatusCode {
-  Status200
-  // Success
-  Status404
-  // Not Found
-  Status500
-  // Internal Server Error
-}
-
-pub fn status_code_to_string(code: StatusCode) -> String {
-  case code {
-    Status200 -> "200"
-    Status404 -> "404"
-    Status500 -> "500"
-  }
-}
-
-// =============================================================================
-// CLIENT/SIMULATOR TYPES
-// =============================================================================
-// Types used by the simulation system and client applications
-
-pub type SimulationConfig {
-  SimulationConfig(
-    num_users: Int,
-    num_subreddits: Int,
-    simulation_duration_ms: Int,
-    zipf_alpha: Float,
-    connection_probability: Float,
-    post_frequency: Float,
-    comment_frequency: Float,
-    vote_frequency: Float,
-    message_frequency: Float,
-    high_activity_threshold: Int,
-    max_posts_per_user: Int,
-    max_comments_per_user: Int,
-    repost_probability: Float,
-    enable_real_time_stats: Bool,
-    stats_update_interval_ms: Int,
-    actor_timeout_ms: Int,
-    max_concurrent_operations: Int,
-  )
-}
-
-pub type SimulationState {
-  SimulationState(
-    config: SimulationConfig,
-    start_time: Int,
-    end_time: Int,
-    is_running: Bool,
-    master_engine_pid: Option(process.Pid),
-    user_actors: Dict(String, process.Pid),
-    performance_metrics: PerformanceMetrics,
-  )
-}
-
-pub type PerformanceMetrics {
-  PerformanceMetrics(
-    total_operations: Int,
-    successful_operations: Int,
-    failed_operations: Int,
-    average_response_time_ms: Float,
-    operations_per_second: Float,
-    user_activity_distribution: Dict(String, Int),
-    subreddit_popularity: Dict(String, Int),
-    error_rate: Float,
-    memory_usage_mb: Float,
-    cpu_usage_percent: Float,
-    network_throughput_mbps: Float,
-    zipf_distribution_accuracy: Float,
-    concurrent_operations: Int,
-    peak_concurrent_operations: Int,
-    average_concurrent_operations: Float,
-    total_simulation_time_ms: Int,
-    user_connection_events: Int,
-    user_disconnection_events: Int,
-    posts_created: Int,
-    comments_created: Int,
-    votes_cast: Int,
-    messages_sent: Int,
-    reposts_created: Int,
-    subreddit_joins: Int,
-    subreddit_leaves: Int,
-    feed_requests: Int,
-    direct_message_requests: Int,
-  )
-}
-
-pub type UserMessage {
-  StartSimulation(config: SimulationConfig)
-  PerformAction(action: UserAction)
-  Connect
-  Disconnect
-  StopSimulation
-}
-
-pub type UserAction {
-  CreatePostAction(title: String, content: String, subreddit_id: String)
-  CreateCommentAction(
-    content: String,
-    post_id: String,
-    parent_comment_id: Option(String),
-  )
-  VoteOnPostAction(post_id: String, vote_type: VoteType)
-  VoteOnCommentAction(comment_id: String, vote_type: VoteType)
-  SendDirectMessageAction(recipient_id: String, content: String)
-  SubscribeToSubredditAction(subreddit_id: String)
-  UnsubscribeFromSubredditAction(subreddit_id: String)
-  GetFeedAction
-  GetDirectMessagesAction
-}
-
-pub type UserActorState {
-  UserActorState(
-    user: User,
-    config: SimulationConfig,
-    is_connected: Bool,
-    actions_performed: Int,
-    last_action_time: Int,
-    next_action_delay: Int,
-    subscribed_subreddits: List(String),
-    performance_stats: UserPerformanceStats,
-    master_engine_pid: Option(process.Pid),
-  )
-}
-
-pub type UserPerformanceStats {
-  UserPerformanceStats(
-    posts_created: Int,
-    comments_created: Int,
-    votes_cast: Int,
-    messages_sent: Int,
-    reposts_created: Int,
-    subreddit_joins: Int,
-    subreddit_leaves: Int,
-    feed_requests: Int,
-    direct_message_requests: Int,
-    total_response_time_ms: Int,
-    successful_operations: Int,
-    failed_operations: Int,
-  )
+import reddit_simulator_gleam/simulation_types.{
+  type Comment, type CommentTree, type DirectMessage, type FeedItem,
+  type FeedObject, type Post, type Subreddit, type SubredditWithMembers,
+  type UpvoteData, type User, type VoteType,
 }
 
 // =============================================================================
@@ -243,12 +14,6 @@ pub type UserPerformanceStats {
 
 // Master Engine Actor Types
 pub type MasterEngineMessage {
-  // String-based request routing
-  ProcessRequest(
-    reply: process.Subject(Result(String, String)),
-    request_type: String,
-    request_data: String,
-  )
 
   // User management - only register and get
   RegisterUser(reply: process.Subject(String), username: String, email: String)
@@ -295,21 +60,21 @@ pub type MasterEngineMessage {
     limit: Int,
   )
 
-  // Comment management - create, get, get by post (hierarchical)
+  // Comment management - create, get, get by subreddit (hierarchical)
   CreateComment(
     reply: process.Subject(Result(Comment, String)),
     content: String,
     author_id: String,
-    post_id: String,
+    subreddit_id: String,
     parent_comment_id: Option(String),
   )
   GetComment(
     reply: process.Subject(Result(Comment, String)),
     comment_id: String,
   )
-  GetPostComments(
-    reply: process.Subject(Result(List(Comment), String)),
-    post_id: String,
+  GetSubredditComments(
+    reply: process.Subject(Result(CommentTree, String)),
+    subreddit_id: String,
   )
 
   // Voting - upvote/downvote with karma computation
@@ -332,6 +97,7 @@ pub type MasterEngineMessage {
     user_id: String,
     limit: Int,
   )
+  GetFeed(reply: process.Subject(Result(List(FeedObject), String)), limit: Int)
 
   // Direct messages - send, get, reply
   SendDirectMessage(
@@ -359,6 +125,10 @@ pub type MasterEngineState {
   MasterEngineState(
     user_actor: process.Subject(UserActorMessage),
     subreddit_actor: process.Subject(SubredditActorMessage),
+    post_actor: process.Subject(PostActorMessage),
+    comment_actor: process.Subject(CommentActorMessage),
+    upvote_actor: process.Subject(UpvoteActorMessage),
+    feed_actor: process.Subject(FeedActorMessage),
   )
 }
 
@@ -426,6 +196,123 @@ pub type SubredditActorState {
     subreddit_members: Dict(String, List(String)),
     // subreddit_id -> list of user_ids
     next_subreddit_id: Int,
+    post_actor: Option(process.Subject(PostActorMessage)),
+    comment_actor: Option(process.Subject(CommentActorMessage)),
+  )
+}
+
+// Post Actor Types - Handles post creation, retrieval, and management
+pub type PostActorMessage {
+  PostCreatePost(
+    reply: process.Subject(Result(Post, String)),
+    title: String,
+    content: String,
+    author_id: String,
+    subreddit_id: String,
+  )
+  PostGetPost(reply: process.Subject(Result(Post, String)), post_id: String)
+  PostGetSubredditPosts(
+    reply: process.Subject(Result(List(Post), String)),
+    subreddit_id: String,
+    limit: Int,
+  )
+  PostAddSubreddit(
+    reply: process.Subject(Result(Nil, String)),
+    subreddit_id: String,
+  )
+  PostShutdown
+}
+
+pub type PostActorState {
+  PostActorState(
+    posts: Dict(String, Post),
+    subreddit_posts: Dict(String, List(String)),
+    // subreddit_id -> list of post_ids
+    next_post_id: Int,
+    upvote_actor: process.Subject(UpvoteActorMessage),
+    feed_actor: process.Subject(FeedActorMessage),
+  )
+}
+
+// Comment Actor Types - Handles comment creation, retrieval, and hierarchical management
+pub type CommentActorMessage {
+  CommentCreateComment(
+    reply: process.Subject(Result(Comment, String)),
+    content: String,
+    author_id: String,
+    subreddit_id: String,
+    parent_comment_id: Option(String),
+  )
+  CommentGetComment(
+    reply: process.Subject(Result(Comment, String)),
+    comment_id: String,
+  )
+  CommentGetSubredditComments(
+    reply: process.Subject(Result(CommentTree, String)),
+    subreddit_id: String,
+  )
+  CommentAddSubreddit(
+    reply: process.Subject(Result(Nil, String)),
+    subreddit_id: String,
+  )
+  CommentShutdown
+}
+
+pub type CommentActorState {
+  CommentActorState(
+    subreddit_comments: Dict(String, CommentTree),
+    // subreddit_id -> CommentTree
+    next_comment_id: Int,
+  )
+}
+
+// Upvote Actor Types - Handles upvotes, downvotes, and karma calculations
+pub type UpvoteActorMessage {
+  UpvoteCreateEntry(
+    reply: process.Subject(Result(Nil, String)),
+    post_id: String,
+  )
+  UpvoteUpvote(
+    reply: process.Subject(Result(UpvoteData, String)),
+    post_id: String,
+  )
+  UpvoteDownvote(
+    reply: process.Subject(Result(UpvoteData, String)),
+    post_id: String,
+  )
+  UpvoteGetUpvote(
+    reply: process.Subject(Result(UpvoteData, String)),
+    post_id: String,
+  )
+  UpvoteShutdown
+}
+
+pub type UpvoteActorState {
+  UpvoteActorState(
+    upvotes: Dict(String, UpvoteData),
+    // post_id -> UpvoteData
+  )
+}
+
+// Feed Actor Types - Handles feed management and post aggregation
+pub type FeedActorMessage {
+  FeedAddPost(
+    reply: process.Subject(Result(Nil, String)),
+    post_id: String,
+    title: String,
+    content: String,
+  )
+  FeedGetFeed(
+    reply: process.Subject(Result(List(FeedObject), String)),
+    limit: Int,
+  )
+  FeedShutdown
+}
+
+pub type FeedActorState {
+  FeedActorState(
+    feed_posts: Dict(String, FeedObject),
+    // post_id -> FeedObject
   )
 }
 
@@ -446,7 +333,7 @@ pub type RequestType {
   ReqGetSubredditPosts
   ReqCreateComment
   ReqGetComment
-  ReqGetPostComments
+  ReqGetSubredditComments
   ReqVoteOnPost
   ReqVoteOnComment
   ReqGetUserFeed
@@ -470,7 +357,7 @@ pub fn parse_request_type(request: String) -> RequestType {
     "get_subreddit_posts" -> ReqGetSubredditPosts
     "create_comment" -> ReqCreateComment
     "get_comment" -> ReqGetComment
-    "get_post_comments" -> ReqGetPostComments
+    "get_subreddit_comments" -> ReqGetSubredditComments
     "vote_on_post" -> ReqVoteOnPost
     "vote_on_comment" -> ReqVoteOnComment
     "get_user_feed" -> ReqGetUserFeed

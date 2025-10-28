@@ -3,10 +3,12 @@ import gleam/erlang/process
 import gleam/int
 import gleam/io
 import gleam/otp/actor
-import reddit_simulator_gleam/all_types.{
-  type StatusCode, type User, type UserActorMessage, type UserEngineActorState,
-  Status200, Status404, User, UserEngineActorState, UserGetUser,
-  UserRegisterUser, UserShutdown, status_code_to_string,
+import reddit_simulator_gleam/engine_types.{
+  type UserActorMessage, type UserEngineActorState, UserEngineActorState,
+  UserGetUser, UserRegisterUser, UserShutdown,
+}
+import reddit_simulator_gleam/simulation_types.{
+  type StatusCode, type User, Status200, Status404, User, status_code_to_string,
 }
 
 // =============================================================================

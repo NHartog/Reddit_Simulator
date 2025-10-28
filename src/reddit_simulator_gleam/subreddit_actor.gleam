@@ -6,27 +6,32 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/otp/actor
 import gleam/string
-import reddit_simulator_gleam/all_types.{
-  type Subreddit, type SubredditActorMessage, type SubredditActorState,
-  type SubredditWithMembers, Subreddit, SubredditActorState,
-  SubredditCreateSubreddit, SubredditGetSubreddit,
+import reddit_simulator_gleam/engine_types.{
+  type CommentActorMessage, type PostActorMessage, type SubredditActorMessage,
+  type SubredditActorState, CommentAddSubreddit, PostAddSubreddit,
+  SubredditActorState, SubredditCreateSubreddit, SubredditGetSubreddit,
   SubredditGetSubredditWithMembers, SubredditJoinSubreddit,
-  SubredditLeaveSubreddit, SubredditShutdown, SubredditWithMembers,
+  SubredditLeaveSubreddit, SubredditShutdown,
+}
+import reddit_simulator_gleam/simulation_types.{
+  type Subreddit, type SubredditWithMembers, Subreddit, SubredditWithMembers,
 }
 
 // =============================================================================
 // SUBREDDIT ACTOR IMPLEMENTATION
 // =============================================================================
 
-pub fn create_subreddit_actor() -> Result(
-  process.Subject(SubredditActorMessage),
-  String,
-) {
+pub fn create_subreddit_actor(
+  post_actor: Option(process.Subject(PostActorMessage)),
+  comment_actor: Option(process.Subject(CommentActorMessage)),
+) -> Result(process.Subject(SubredditActorMessage), String) {
   let initial_state =
     SubredditActorState(
       subreddits: dict.new(),
       subreddit_members: dict.new(),
       next_subreddit_id: 1,
+      post_actor: post_actor,
+      comment_actor: comment_actor,
     )
 
   case
@@ -120,7 +125,47 @@ fn handle_create_subreddit(
           subreddits: updated_subreddits,
           subreddit_members: updated_members,
           next_subreddit_id: state.next_subreddit_id + 1,
+          post_actor: state.post_actor,
+          comment_actor: state.comment_actor,
         )
+
+      // Notify Post actor about new subreddit
+      case state.post_actor {
+        Some(post_actor_subject) -> {
+          // Create a dummy reply subject for the notification
+          let dummy_reply = process.new_subject()
+          let post_message = PostAddSubreddit(dummy_reply, subreddit_id)
+          let _ = process.send(post_actor_subject, post_message)
+          io.println(
+            "📤 SUBREDDIT ACTOR NOTIFYING: Post actor about new subreddit "
+            <> subreddit_id,
+          )
+        }
+        None -> {
+          io.println(
+            "⚠️ SUBREDDIT ACTOR WARNING: No post actor available to notify",
+          )
+        }
+      }
+
+      // Notify Comment actor about new subreddit
+      case state.comment_actor {
+        Some(comment_actor_subject) -> {
+          // Create a dummy reply subject for the notification
+          let dummy_reply = process.new_subject()
+          let comment_message = CommentAddSubreddit(dummy_reply, subreddit_id)
+          let _ = process.send(comment_actor_subject, comment_message)
+          io.println(
+            "📤 SUBREDDIT ACTOR NOTIFYING: Comment actor about new subreddit "
+            <> subreddit_id,
+          )
+        }
+        None -> {
+          io.println(
+            "⚠️ SUBREDDIT ACTOR WARNING: No comment actor available to notify",
+          )
+        }
+      }
 
       io.println(
         "📤 SUBREDDIT ACTOR SENDING: Created subreddit "
@@ -199,6 +244,8 @@ fn handle_join_subreddit(
                   subreddits: updated_subreddits,
                   subreddit_members: updated_members_dict,
                   next_subreddit_id: state.next_subreddit_id,
+                  post_actor: state.post_actor,
+                  comment_actor: state.comment_actor,
                 )
 
               io.println(
@@ -282,6 +329,8 @@ fn handle_leave_subreddit(
                   subreddits: updated_subreddits,
                   subreddit_members: updated_members_dict,
                   next_subreddit_id: state.next_subreddit_id,
+                  post_actor: state.post_actor,
+                  comment_actor: state.comment_actor,
                 )
 
               io.println(

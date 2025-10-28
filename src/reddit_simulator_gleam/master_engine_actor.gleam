@@ -1,36 +1,34 @@
-import gleam/dict
 import gleam/erlang/process
 import gleam/int
 import gleam/io
-import gleam/list
-import gleam/option.{type Option, None, Some}
+import gleam/option.{type Option, Some}
 import gleam/otp/actor
-import gleam/result
-import gleam/string
-import reddit_simulator_gleam/all_types.{
-  type Comment, type DirectMessage, type FeedItem, type MasterEngineMessage,
-  type MasterEngineState, type Post, type RequestType, type StatusCode,
-  type Subreddit, type SubredditActorMessage, type SubredditWithMembers,
-  type SystemStats, type User, type UserActorMessage, type Vote, type VoteTarget,
-  type VoteType, Comment, CommentTarget, CreateComment, CreatePost,
-  CreateSubreddit, DirectMessage, Downvote, FeedItem, GetComment,
-  GetDirectMessages, GetPost, GetPostComments, GetSubreddit, GetSubredditPosts,
-  GetSubredditWithMembers, GetSystemStats, GetUser, GetUserFeed,
-  MarkMessageAsRead, MasterEngineState, Post, PostTarget, ProcessRequest,
-  RegisterUser, ReqCreateComment, ReqCreatePost, ReqCreateSubreddit,
-  ReqCreateUser, ReqGetComment, ReqGetDirectMessages, ReqGetPost,
-  ReqGetPostComments, ReqGetSubreddit, ReqGetSubredditPosts, ReqGetSystemStats,
-  ReqGetUser, ReqGetUserFeed, ReqMarkMessageAsRead, ReqSendDirectMessage,
-  ReqSubscribeToSubreddit, ReqUnknown, ReqUnsubscribeFromSubreddit,
-  ReqVoteOnComment, ReqVoteOnPost, SendDirectMessage, Shutdown, Status200,
-  Status404, Subreddit, SubredditCreateSubreddit, SubredditGetSubreddit,
-  SubredditGetSubredditWithMembers, SubredditJoinSubreddit,
-  SubredditLeaveSubreddit, SubredditWithMembers, SubscribeToSubreddit,
-  SystemStats, UnsubscribeFromSubreddit, Upvote, User, UserGetUser,
-  UserRegisterUser, Vote, VoteOnComment, VoteOnPost, parse_request_type,
-  status_code_to_string,
+import reddit_simulator_gleam/comment_actor.{create_comment_actor}
+import reddit_simulator_gleam/engine_types.{
+  type CommentActorMessage, type FeedActorMessage, type MasterEngineMessage,
+  type MasterEngineState, type PostActorMessage, type SubredditActorMessage,
+  type SystemStats, type UpvoteActorMessage, type UserActorMessage,
+  CommentAddSubreddit, CommentCreateComment, CommentGetComment,
+  CommentGetSubredditComments, CreateComment, CreatePost, CreateSubreddit,
+  FeedGetFeed, GetComment, GetDirectMessages, GetFeed, GetPost, GetSubreddit,
+  GetSubredditComments, GetSubredditPosts, GetSubredditWithMembers,
+  GetSystemStats, GetUser, GetUserFeed, MarkMessageAsRead, MasterEngineState,
+  PostAddSubreddit, PostCreatePost, PostGetPost, PostGetSubredditPosts,
+  RegisterUser, SendDirectMessage, Shutdown, SubredditCreateSubreddit,
+  SubredditGetSubreddit, SubredditGetSubredditWithMembers,
+  SubredditJoinSubreddit, SubredditLeaveSubreddit, SubscribeToSubreddit,
+  UnsubscribeFromSubreddit, UpvoteDownvote, UpvoteGetUpvote, UpvoteUpvote,
+  UserGetUser, UserRegisterUser, VoteOnComment, VoteOnPost,
+}
+import reddit_simulator_gleam/feed_actor.{create_feed_actor}
+import reddit_simulator_gleam/post_actor.{create_post_actor}
+import reddit_simulator_gleam/simulation_types.{
+  type Comment, type CommentTree, type DirectMessage, type FeedItem,
+  type FeedObject, type Post, type Subreddit, type SubredditWithMembers,
+  type VoteType, Downvote, Post, Upvote,
 }
 import reddit_simulator_gleam/subreddit_actor.{create_subreddit_actor}
+import reddit_simulator_gleam/upvote_actor.{create_upvote_actor}
 import reddit_simulator_gleam/user_actor.{create_user_actor}
 
 // =============================================================================
@@ -49,6 +47,10 @@ pub fn create_master_engine_actor() -> Result(
         MasterEngineState(
           user_actor: worker_actors.user_actor,
           subreddit_actor: worker_actors.subreddit_actor,
+          post_actor: worker_actors.post_actor,
+          comment_actor: worker_actors.comment_actor,
+          upvote_actor: worker_actors.upvote_actor,
+          feed_actor: worker_actors.feed_actor,
         )
 
       case
@@ -73,6 +75,10 @@ type WorkerActors {
   WorkerActors(
     user_actor: process.Subject(UserActorMessage),
     subreddit_actor: process.Subject(SubredditActorMessage),
+    post_actor: process.Subject(PostActorMessage),
+    comment_actor: process.Subject(CommentActorMessage),
+    upvote_actor: process.Subject(UpvoteActorMessage),
+    feed_actor: process.Subject(FeedActorMessage),
   )
 }
 
@@ -80,17 +86,52 @@ fn create_all_worker_actors() -> Result(WorkerActors, String) {
   // Create UserActor
   case create_user_actor() {
     Ok(user_actor_subject) -> {
-      // Create SubredditActor
-      case create_subreddit_actor() {
-        Ok(subreddit_actor_subject) -> {
-          let worker_actors =
-            WorkerActors(
-              user_actor: user_actor_subject,
-              subreddit_actor: subreddit_actor_subject,
-            )
-          Ok(worker_actors)
+      // Create UpvoteActor first
+      case create_upvote_actor() {
+        Ok(upvote_actor_subject) -> {
+          // Create FeedActor
+          case create_feed_actor() {
+            Ok(feed_actor_subject) -> {
+              // Create PostActor with UpvoteActor and FeedActor
+              case create_post_actor(upvote_actor_subject, feed_actor_subject) {
+                Ok(post_actor_subject) -> {
+                  // Create CommentActor
+                  case create_comment_actor() {
+                    Ok(comment_actor_subject) -> {
+                      // Create SubredditActor with PostActor and CommentActor references
+                      case
+                        create_subreddit_actor(
+                          Some(post_actor_subject),
+                          Some(comment_actor_subject),
+                        )
+                      {
+                        Ok(subreddit_actor_subject) -> {
+                          let worker_actors =
+                            WorkerActors(
+                              user_actor: user_actor_subject,
+                              subreddit_actor: subreddit_actor_subject,
+                              post_actor: post_actor_subject,
+                              comment_actor: comment_actor_subject,
+                              upvote_actor: upvote_actor_subject,
+                              feed_actor: feed_actor_subject,
+                            )
+                          Ok(worker_actors)
+                        }
+                        Error(msg) ->
+                          Error("Failed to create SubredditActor: " <> msg)
+                      }
+                    }
+                    Error(msg) ->
+                      Error("Failed to create CommentActor: " <> msg)
+                  }
+                }
+                Error(msg) -> Error("Failed to create PostActor: " <> msg)
+              }
+            }
+            Error(msg) -> Error("Failed to create FeedActor: " <> msg)
+          }
         }
-        Error(msg) -> Error("Failed to create SubredditActor: " <> msg)
+        Error(msg) -> Error("Failed to create UpvoteActor: " <> msg)
       }
     }
     Error(msg) -> Error("Failed to create UserActor: " <> msg)
@@ -102,11 +143,6 @@ fn handle_master_engine_message(
   message: MasterEngineMessage,
 ) -> actor.Next(MasterEngineState, MasterEngineMessage) {
   case message {
-    // String-based request routing
-    ProcessRequest(reply, request_type, request_data) -> {
-      handle_process_request(state, reply, request_type, request_data)
-    }
-
     // User management
     RegisterUser(reply, username, email) -> {
       handle_register_user(state, reply, username, email)
@@ -144,21 +180,21 @@ fn handle_master_engine_message(
     }
 
     // Comment management
-    CreateComment(reply, content, author_id, post_id, parent_comment_id) -> {
+    CreateComment(reply, content, author_id, subreddit_id, parent_comment_id) -> {
       handle_create_comment(
         state,
         reply,
         content,
         author_id,
-        post_id,
+        subreddit_id,
         parent_comment_id,
       )
     }
     GetComment(reply, comment_id) -> {
       handle_get_comment(state, reply, comment_id)
     }
-    GetPostComments(reply, post_id) -> {
-      handle_get_post_comments(state, reply, post_id)
+    GetSubredditComments(reply, subreddit_id) -> {
+      handle_get_subreddit_comments(state, reply, subreddit_id)
     }
 
     // Voting
@@ -172,6 +208,9 @@ fn handle_master_engine_message(
     // Feed
     GetUserFeed(reply, user_id, limit) -> {
       handle_get_user_feed(state, reply, user_id, limit)
+    }
+    GetFeed(reply, limit) -> {
+      handle_get_feed(state, reply, limit)
     }
 
     // Direct messages
@@ -329,8 +368,13 @@ fn handle_create_post(
   author_id: String,
   subreddit_id: String,
 ) -> actor.Next(MasterEngineState, MasterEngineMessage) {
-  // TODO: Implement post creation
-  let _ = process.send(reply, Error("Post creation not implemented"))
+  let post_message =
+    PostCreatePost(reply, title, content, author_id, subreddit_id)
+  io.println(
+    "🔄 MASTER ENGINE forwarding post creation to PostActor for: " <> title,
+  )
+  let _ = process.send(state.post_actor, post_message)
+  io.println("Post creation request sent to PostActor")
   actor.continue(state)
 }
 
@@ -339,9 +383,65 @@ fn handle_get_post(
   reply: process.Subject(Result(Post, String)),
   post_id: String,
 ) -> actor.Next(MasterEngineState, MasterEngineMessage) {
-  // TODO: Implement post retrieval
-  let _ = process.send(reply, Error("Post retrieval not implemented"))
-  actor.continue(state)
+  // First get the post from PostActor
+  let post_reply = process.new_subject()
+  let post_message = PostGetPost(post_reply, post_id)
+  io.println(
+    "🔄 MASTER ENGINE forwarding post retrieval to PostActor for: " <> post_id,
+  )
+  let _ = process.send(state.post_actor, post_message)
+  io.println("Post retrieval request sent to PostActor")
+
+  case process.receive(post_reply, 1000) {
+    Ok(Ok(post)) -> {
+      // Now get upvote data from UpvoteActor
+      let upvote_reply = process.new_subject()
+      let upvote_message = UpvoteGetUpvote(upvote_reply, post_id)
+      let _ = process.send(state.upvote_actor, upvote_message)
+
+      case process.receive(upvote_reply, 1000) {
+        Ok(Ok(upvote_data)) -> {
+          // Merge post data with upvote data
+          let updated_post =
+            Post(
+              id: post.id,
+              title: post.title,
+              content: post.content,
+              author_id: post.author_id,
+              subreddit_id: post.subreddit_id,
+              created_at: post.created_at,
+              score: post.score,
+              upvotes: upvote_data.upvotes,
+              downvotes: upvote_data.downvotes,
+              comment_count: post.comment_count,
+            )
+          io.println(
+            "📤 MASTER ENGINE: Retrieved post with upvote data (upvotes: "
+            <> int.to_string(updated_post.upvotes)
+            <> ", downvotes: "
+            <> int.to_string(updated_post.downvotes)
+            <> ")",
+          )
+          let _ = process.send(reply, Ok(updated_post))
+          actor.continue(state)
+        }
+        _ -> {
+          // If upvote data not available, return post as-is
+          io.println("📤 MASTER ENGINE: Retrieved post without upvote data")
+          let _ = process.send(reply, Ok(post))
+          actor.continue(state)
+        }
+      }
+    }
+    Ok(Error(msg)) -> {
+      let _ = process.send(reply, Error(msg))
+      actor.continue(state)
+    }
+    Error(_) -> {
+      let _ = process.send(reply, Error("Post retrieval timeout"))
+      actor.continue(state)
+    }
+  }
 }
 
 fn handle_get_subreddit_posts(
@@ -350,8 +450,13 @@ fn handle_get_subreddit_posts(
   subreddit_id: String,
   limit: Int,
 ) -> actor.Next(MasterEngineState, MasterEngineMessage) {
-  // TODO: Implement subreddit posts retrieval
-  let _ = process.send(reply, Ok([]))
+  let post_message = PostGetSubredditPosts(reply, subreddit_id, limit)
+  io.println(
+    "🔄 MASTER ENGINE forwarding subreddit posts retrieval to PostActor for: "
+    <> subreddit_id,
+  )
+  let _ = process.send(state.post_actor, post_message)
+  io.println("Subreddit posts retrieval request sent to PostActor")
   actor.continue(state)
 }
 
@@ -364,11 +469,18 @@ fn handle_create_comment(
   reply: process.Subject(Result(Comment, String)),
   content: String,
   author_id: String,
-  post_id: String,
+  subreddit_id: String,
   parent_comment_id: Option(String),
 ) -> actor.Next(MasterEngineState, MasterEngineMessage) {
-  // TODO: Implement comment creation
-  let _ = process.send(reply, Error("Comment creation not implemented"))
+  let comment_message =
+    CommentCreateComment(
+      reply,
+      content,
+      author_id,
+      subreddit_id,
+      parent_comment_id,
+    )
+  let _ = process.send(state.comment_actor, comment_message)
   actor.continue(state)
 }
 
@@ -377,18 +489,18 @@ fn handle_get_comment(
   reply: process.Subject(Result(Comment, String)),
   comment_id: String,
 ) -> actor.Next(MasterEngineState, MasterEngineMessage) {
-  // TODO: Implement comment retrieval
-  let _ = process.send(reply, Error("Comment retrieval not implemented"))
+  let comment_message = CommentGetComment(reply, comment_id)
+  let _ = process.send(state.comment_actor, comment_message)
   actor.continue(state)
 }
 
-fn handle_get_post_comments(
+fn handle_get_subreddit_comments(
   state: MasterEngineState,
-  reply: process.Subject(Result(List(Comment), String)),
-  post_id: String,
+  reply: process.Subject(Result(CommentTree, String)),
+  subreddit_id: String,
 ) -> actor.Next(MasterEngineState, MasterEngineMessage) {
-  // TODO: Implement post comments retrieval
-  let _ = process.send(reply, Ok([]))
+  let comment_message = CommentGetSubredditComments(reply, subreddit_id)
+  let _ = process.send(state.comment_actor, comment_message)
   actor.continue(state)
 }
 
@@ -403,17 +515,63 @@ fn handle_vote_on_post(
   post_id: String,
   vote_type: VoteType,
 ) -> actor.Next(MasterEngineState, MasterEngineMessage) {
-  // TODO: Implement post voting logic
-  let _ = process.send(reply, Ok(Nil))
-  actor.continue(state)
+  // Forward vote directly to UpvoteActor
+  case vote_type {
+    Upvote -> {
+      let upvote_reply = process.new_subject()
+      let upvote_message = UpvoteUpvote(upvote_reply, post_id)
+      let _ = process.send(state.upvote_actor, upvote_message)
+
+      case process.receive(upvote_reply, 1000) {
+        Ok(Ok(_)) -> {
+          io.println("✓ Post upvoted successfully")
+          let _ = process.send(reply, Ok(Nil))
+          actor.continue(state)
+        }
+        Ok(Error(msg)) -> {
+          io.println("✗ Post upvote failed: " <> msg)
+          let _ = process.send(reply, Error(msg))
+          actor.continue(state)
+        }
+        Error(_) -> {
+          io.println("✗ Post upvote timeout")
+          let _ = process.send(reply, Error("Upvote timeout"))
+          actor.continue(state)
+        }
+      }
+    }
+    Downvote -> {
+      let upvote_reply = process.new_subject()
+      let upvote_message = UpvoteDownvote(upvote_reply, post_id)
+      let _ = process.send(state.upvote_actor, upvote_message)
+
+      case process.receive(upvote_reply, 1000) {
+        Ok(Ok(_)) -> {
+          io.println("✓ Post downvoted successfully")
+          let _ = process.send(reply, Ok(Nil))
+          actor.continue(state)
+        }
+        Ok(Error(msg)) -> {
+          io.println("✗ Post downvote failed: " <> msg)
+          let _ = process.send(reply, Error(msg))
+          actor.continue(state)
+        }
+        Error(_) -> {
+          io.println("✗ Post downvote timeout")
+          let _ = process.send(reply, Error("Downvote timeout"))
+          actor.continue(state)
+        }
+      }
+    }
+  }
 }
 
 fn handle_vote_on_comment(
   state: MasterEngineState,
   reply: process.Subject(Result(Nil, String)),
-  user_id: String,
-  comment_id: String,
-  vote_type: VoteType,
+  _user_id: String,
+  _comment_id: String,
+  _vote_type: VoteType,
 ) -> actor.Next(MasterEngineState, MasterEngineMessage) {
   // TODO: Implement comment voting logic
   let _ = process.send(reply, Ok(Nil))
@@ -427,11 +585,26 @@ fn handle_vote_on_comment(
 fn handle_get_user_feed(
   state: MasterEngineState,
   reply: process.Subject(Result(List(FeedItem), String)),
-  user_id: String,
-  limit: Int,
+  _user_id: String,
+  _limit: Int,
 ) -> actor.Next(MasterEngineState, MasterEngineMessage) {
   // TODO: Implement user feed generation
   let _ = process.send(reply, Ok([]))
+  actor.continue(state)
+}
+
+fn handle_get_feed(
+  state: MasterEngineState,
+  reply: process.Subject(Result(List(FeedObject), String)),
+  limit: Int,
+) -> actor.Next(MasterEngineState, MasterEngineMessage) {
+  let feed_message = FeedGetFeed(reply, limit)
+  io.println(
+    "🔄 MASTER ENGINE forwarding feed retrieval to FeedActor with limit: "
+    <> int.to_string(limit),
+  )
+  let _ = process.send(state.feed_actor, feed_message)
+  io.println("Feed retrieval request sent to FeedActor")
   actor.continue(state)
 }
 
@@ -442,9 +615,9 @@ fn handle_get_user_feed(
 fn handle_send_direct_message(
   state: MasterEngineState,
   reply: process.Subject(Result(DirectMessage, String)),
-  sender_id: String,
-  recipient_id: String,
-  content: String,
+  _sender_id: String,
+  _recipient_id: String,
+  _content: String,
 ) -> actor.Next(MasterEngineState, MasterEngineMessage) {
   // TODO: Implement direct message sending
   let _ = process.send(reply, Error("Direct message sending not implemented"))
@@ -454,7 +627,7 @@ fn handle_send_direct_message(
 fn handle_get_direct_messages(
   state: MasterEngineState,
   reply: process.Subject(Result(List(DirectMessage), String)),
-  user_id: String,
+  _user_id: String,
 ) -> actor.Next(MasterEngineState, MasterEngineMessage) {
   // TODO: Implement direct messages retrieval
   let _ = process.send(reply, Ok([]))
@@ -464,8 +637,8 @@ fn handle_get_direct_messages(
 fn handle_mark_message_as_read(
   state: MasterEngineState,
   reply: process.Subject(Result(Nil, String)),
-  user_id: String,
-  message_id: String,
+  _user_id: String,
+  _message_id: String,
 ) -> actor.Next(MasterEngineState, MasterEngineMessage) {
   // TODO: Implement mark as read logic
   let _ = process.send(reply, Ok(Nil))
@@ -494,96 +667,5 @@ fn error_to_string(err: actor.StartError) -> String {
     actor.InitTimeout -> "Initialization timeout"
     actor.InitFailed(message) -> message
     actor.InitExited(_) -> "Actor initialization exited"
-  }
-}
-
-// =============================================================================
-// STRING-BASED REQUEST ROUTING
-// =============================================================================
-
-fn handle_process_request(
-  state: MasterEngineState,
-  reply: process.Subject(Result(String, String)),
-  request_type: String,
-  request_data: String,
-) -> actor.Next(MasterEngineState, MasterEngineMessage) {
-  let parsed_type = parse_request_type(request_type)
-
-  case parsed_type {
-    ReqCreateUser -> {
-      // Route to UserActor
-      let _ = process.send(reply, Ok("User creation routed to UserActor"))
-      actor.continue(state)
-    }
-    ReqGetUser -> {
-      // Route to UserActor
-      let _ = process.send(reply, Ok("User retrieval routed to UserActor"))
-      actor.continue(state)
-    }
-    ReqCreateSubreddit -> {
-      let _ =
-        process.send(reply, Ok("Subreddit creation routed to legacy handler"))
-      actor.continue(state)
-    }
-    ReqCreatePost -> {
-      let _ = process.send(reply, Ok("Post creation routed to legacy handler"))
-      actor.continue(state)
-    }
-    ReqCreateComment -> {
-      let _ =
-        process.send(reply, Ok("Comment creation routed to legacy handler"))
-      actor.continue(state)
-    }
-    ReqVoteOnPost -> {
-      let _ = process.send(reply, Ok("Post voting routed to legacy handler"))
-      actor.continue(state)
-    }
-    ReqVoteOnComment -> {
-      let _ = process.send(reply, Ok("Comment voting routed to legacy handler"))
-      actor.continue(state)
-    }
-    ReqGetUserFeed -> {
-      let _ = process.send(reply, Ok("Feed retrieval routed to legacy handler"))
-      actor.continue(state)
-    }
-    ReqSendDirectMessage -> {
-      let _ =
-        process.send(
-          reply,
-          Ok("Direct message sending routed to legacy handler"),
-        )
-      actor.continue(state)
-    }
-    ReqGetDirectMessages -> {
-      let _ =
-        process.send(
-          reply,
-          Ok("Direct message retrieval routed to legacy handler"),
-        )
-      actor.continue(state)
-    }
-    ReqGetSystemStats -> {
-      let _ =
-        process.send(
-          reply,
-          Ok("System stats retrieval routed to legacy handler"),
-        )
-      actor.continue(state)
-    }
-    ReqUnknown -> {
-      let _ =
-        process.send(reply, Error("Unknown request type: " <> request_type))
-      actor.continue(state)
-    }
-    _ -> {
-      let _ =
-        process.send(
-          reply,
-          Ok(
-            "Request type '" <> request_type <> "' with data: " <> request_data,
-          ),
-        )
-      actor.continue(state)
-    }
   }
 }

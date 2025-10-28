@@ -1,0 +1,113 @@
+import gleam/dict
+import gleam/erlang/process
+import gleam/int
+import gleam/io
+import gleam/list
+import gleam/otp/actor
+import reddit_simulator_gleam/engine_types.{
+  type FeedActorMessage, type FeedActorState, FeedActorState, FeedAddPost,
+  FeedGetFeed, FeedShutdown,
+}
+import reddit_simulator_gleam/simulation_types.{type FeedObject, FeedObject}
+
+// =============================================================================
+// FEED ACTOR IMPLEMENTATION
+// =============================================================================
+
+pub fn create_feed_actor() -> Result(process.Subject(FeedActorMessage), String) {
+  let initial_state = FeedActorState(feed_posts: dict.new())
+
+  case
+    actor.new(initial_state)
+    |> actor.on_message(handle_feed_message)
+    |> actor.start()
+  {
+    Ok(actor_data) -> Ok(actor_data.data)
+    Error(err) -> Error("Failed to start FeedActor: " <> error_to_string(err))
+  }
+}
+
+// =============================================================================
+// MESSAGE HANDLING
+// =============================================================================
+
+fn handle_feed_message(
+  state: FeedActorState,
+  message: FeedActorMessage,
+) -> actor.Next(FeedActorState, FeedActorMessage) {
+  case message {
+    FeedAddPost(reply, post_id, title, content) -> {
+      handle_add_post(state, reply, post_id, title, content)
+    }
+    FeedGetFeed(reply, limit) -> {
+      handle_get_feed(state, reply, limit)
+    }
+    FeedShutdown -> {
+      io.println("FeedActor shutting down...")
+      actor.stop()
+    }
+  }
+}
+
+// =============================================================================
+// POST ADDITION
+// =============================================================================
+
+fn handle_add_post(
+  state: FeedActorState,
+  reply: process.Subject(Result(Nil, String)),
+  post_id: String,
+  title: String,
+  content: String,
+) -> actor.Next(FeedActorState, FeedActorMessage) {
+  let feed_object = FeedObject(title: title, content: content)
+  let updated_feed_posts = dict.insert(state.feed_posts, post_id, feed_object)
+
+  let updated_state = FeedActorState(feed_posts: updated_feed_posts)
+
+  io.println(
+    "📤 FEED ACTOR: Added post '"
+    <> title
+    <> "' with ID "
+    <> post_id
+    <> " to feed",
+  )
+  let _ = process.send(reply, Ok(Nil))
+  actor.continue(updated_state)
+}
+
+// =============================================================================
+// FEED RETRIEVAL
+// =============================================================================
+
+fn handle_get_feed(
+  state: FeedActorState,
+  reply: process.Subject(Result(List(FeedObject), String)),
+  limit: Int,
+) -> actor.Next(FeedActorState, FeedActorMessage) {
+  let all_feed_objects = dict.values(state.feed_posts)
+  let limited_feed = list.take(all_feed_objects, limit)
+  let feed_count = list.length(limited_feed)
+
+  io.println(
+    "📤 FEED ACTOR: Retrieved "
+    <> int.to_string(feed_count)
+    <> " posts from feed (limit: "
+    <> int.to_string(limit)
+    <> ")",
+  )
+  let _ = process.send(reply, Ok(limited_feed))
+  actor.continue(state)
+}
+
+// =============================================================================
+// HELPER FUNCTIONS
+// =============================================================================
+
+fn error_to_string(err: actor.StartError) -> String {
+  case err {
+    actor.InitTimeout -> "Initialization timeout"
+    actor.InitFailed(message) -> message
+    actor.InitExited(_) -> "Actor initialization exited"
+  }
+}
