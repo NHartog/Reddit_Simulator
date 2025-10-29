@@ -110,11 +110,6 @@ pub type MasterEngineMessage {
     reply: process.Subject(Result(List(DirectMessage), String)),
     user_id: String,
   )
-  MarkMessageAsRead(
-    reply: process.Subject(Result(Nil, String)),
-    user_id: String,
-    message_id: String,
-  )
 
   // System management
   GetSystemStats(reply: process.Subject(Result(SystemStats, String)))
@@ -129,6 +124,7 @@ pub type MasterEngineState {
     comment_actor: process.Subject(CommentActorMessage),
     upvote_actor: process.Subject(UpvoteActorMessage),
     feed_actor: process.Subject(FeedActorMessage),
+    direct_message_actor: process.Subject(DirectMessageActorMessage),
   )
 }
 
@@ -158,7 +154,11 @@ pub type UserActorMessage {
 }
 
 pub type UserEngineActorState {
-  UserEngineActorState(users: Dict(String, User), next_user_id: Int)
+  UserEngineActorState(
+    users: Dict(String, User),
+    next_user_id: Int,
+    direct_message_actor: Option(process.Subject(DirectMessageActorMessage)),
+  )
 }
 
 // Subreddit Actor Types - Handles subreddit creation, joining, and leaving
@@ -316,6 +316,33 @@ pub type FeedActorState {
   )
 }
 
+// Direct Message Actor Types - Handles direct messages between users
+pub type DirectMessageActorMessage {
+  DirectMessageAddUser(
+    reply: process.Subject(Result(Nil, String)),
+    user_id: String,
+  )
+  DirectMessageSendMessage(
+    reply: process.Subject(Result(DirectMessage, String)),
+    sender_id: String,
+    recipient_id: String,
+    content: String,
+  )
+  DirectMessageGetMessages(
+    reply: process.Subject(Result(List(DirectMessage), String)),
+    user_id: String,
+  )
+  DirectMessageShutdown
+}
+
+pub type DirectMessageActorState {
+  DirectMessageActorState(
+    user_messages: Dict(String, List(DirectMessage)),
+    // user_id -> List(DirectMessage)
+    next_message_id: Int,
+  )
+}
+
 // =============================================================================
 // REQUEST ROUTING TYPES
 // =============================================================================
@@ -339,7 +366,6 @@ pub type RequestType {
   ReqGetUserFeed
   ReqSendDirectMessage
   ReqGetDirectMessages
-  ReqMarkMessageAsRead
   ReqGetSystemStats
   ReqUnknown
 }
@@ -363,7 +389,6 @@ pub fn parse_request_type(request: String) -> RequestType {
     "get_user_feed" -> ReqGetUserFeed
     "send_direct_message" -> ReqSendDirectMessage
     "get_direct_messages" -> ReqGetDirectMessages
-    "mark_message_as_read" -> ReqMarkMessageAsRead
     "get_system_stats" -> ReqGetSystemStats
     _ -> ReqUnknown
   }

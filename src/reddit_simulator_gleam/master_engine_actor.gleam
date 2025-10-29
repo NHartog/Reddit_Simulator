@@ -4,21 +4,23 @@ import gleam/io
 import gleam/option.{type Option, Some}
 import gleam/otp/actor
 import reddit_simulator_gleam/comment_actor.{create_comment_actor}
+import reddit_simulator_gleam/direct_message_actor.{create_direct_message_actor}
 import reddit_simulator_gleam/engine_types.{
-  type CommentActorMessage, type FeedActorMessage, type MasterEngineMessage,
-  type MasterEngineState, type PostActorMessage, type SubredditActorMessage,
-  type SystemStats, type UpvoteActorMessage, type UserActorMessage,
-  CommentAddSubreddit, CommentCreateComment, CommentGetComment,
-  CommentGetSubredditComments, CreateComment, CreatePost, CreateSubreddit,
+  type CommentActorMessage, type DirectMessageActorMessage,
+  type FeedActorMessage, type MasterEngineMessage, type MasterEngineState,
+  type PostActorMessage, type SubredditActorMessage, type SystemStats,
+  type UpvoteActorMessage, type UserActorMessage, CommentCreateComment,
+  CommentGetComment, CommentGetSubredditComments, CreateComment, CreatePost,
+  CreateSubreddit, DirectMessageGetMessages, DirectMessageSendMessage,
   FeedGetFeed, GetComment, GetDirectMessages, GetFeed, GetPost, GetSubreddit,
   GetSubredditComments, GetSubredditPosts, GetSubredditWithMembers,
-  GetSystemStats, GetUser, GetUserFeed, MarkMessageAsRead, MasterEngineState,
-  PostAddSubreddit, PostCreatePost, PostGetPost, PostGetSubredditPosts,
-  RegisterUser, SendDirectMessage, Shutdown, SubredditCreateSubreddit,
-  SubredditGetSubreddit, SubredditGetSubredditWithMembers,
-  SubredditJoinSubreddit, SubredditLeaveSubreddit, SubscribeToSubreddit,
-  UnsubscribeFromSubreddit, UpvoteDownvote, UpvoteGetUpvote, UpvoteUpvote,
-  UserGetUser, UserRegisterUser, VoteOnComment, VoteOnPost,
+  GetSystemStats, GetUser, GetUserFeed, MasterEngineState, PostCreatePost,
+  PostGetPost, PostGetSubredditPosts, RegisterUser, SendDirectMessage, Shutdown,
+  SubredditCreateSubreddit, SubredditGetSubreddit,
+  SubredditGetSubredditWithMembers, SubredditJoinSubreddit,
+  SubredditLeaveSubreddit, SubscribeToSubreddit, UnsubscribeFromSubreddit,
+  UpvoteDownvote, UpvoteGetUpvote, UpvoteUpvote, UserGetUser, UserRegisterUser,
+  VoteOnComment, VoteOnPost,
 }
 import reddit_simulator_gleam/feed_actor.{create_feed_actor}
 import reddit_simulator_gleam/post_actor.{create_post_actor}
@@ -51,6 +53,7 @@ pub fn create_master_engine_actor() -> Result(
           comment_actor: worker_actors.comment_actor,
           upvote_actor: worker_actors.upvote_actor,
           feed_actor: worker_actors.feed_actor,
+          direct_message_actor: worker_actors.direct_message_actor,
         )
 
       case
@@ -79,62 +82,72 @@ type WorkerActors {
     comment_actor: process.Subject(CommentActorMessage),
     upvote_actor: process.Subject(UpvoteActorMessage),
     feed_actor: process.Subject(FeedActorMessage),
+    direct_message_actor: process.Subject(DirectMessageActorMessage),
   )
 }
 
 fn create_all_worker_actors() -> Result(WorkerActors, String) {
-  // Create UserActor
-  case create_user_actor() {
-    Ok(user_actor_subject) -> {
-      // Create UpvoteActor first
-      case create_upvote_actor() {
-        Ok(upvote_actor_subject) -> {
-          // Create FeedActor
-          case create_feed_actor() {
-            Ok(feed_actor_subject) -> {
-              // Create PostActor with UpvoteActor and FeedActor
-              case create_post_actor(upvote_actor_subject, feed_actor_subject) {
-                Ok(post_actor_subject) -> {
-                  // Create CommentActor
-                  case create_comment_actor() {
-                    Ok(comment_actor_subject) -> {
-                      // Create SubredditActor with PostActor and CommentActor references
-                      case
-                        create_subreddit_actor(
-                          Some(post_actor_subject),
-                          Some(comment_actor_subject),
-                        )
-                      {
-                        Ok(subreddit_actor_subject) -> {
-                          let worker_actors =
-                            WorkerActors(
-                              user_actor: user_actor_subject,
-                              subreddit_actor: subreddit_actor_subject,
-                              post_actor: post_actor_subject,
-                              comment_actor: comment_actor_subject,
-                              upvote_actor: upvote_actor_subject,
-                              feed_actor: feed_actor_subject,
+  // Create DirectMessageActor first
+  case create_direct_message_actor() {
+    Ok(direct_message_actor_subject) -> {
+      // Create UserActor with DirectMessageActor reference
+      case create_user_actor(direct_message_actor_subject) {
+        Ok(user_actor_subject) -> {
+          // Create UpvoteActor first
+          case create_upvote_actor() {
+            Ok(upvote_actor_subject) -> {
+              // Create FeedActor
+              case create_feed_actor() {
+                Ok(feed_actor_subject) -> {
+                  // Create PostActor with UpvoteActor and FeedActor
+                  case
+                    create_post_actor(upvote_actor_subject, feed_actor_subject)
+                  {
+                    Ok(post_actor_subject) -> {
+                      // Create CommentActor
+                      case create_comment_actor() {
+                        Ok(comment_actor_subject) -> {
+                          // Create SubredditActor with PostActor and CommentActor references
+                          case
+                            create_subreddit_actor(
+                              Some(post_actor_subject),
+                              Some(comment_actor_subject),
                             )
-                          Ok(worker_actors)
+                          {
+                            Ok(subreddit_actor_subject) -> {
+                              let worker_actors =
+                                WorkerActors(
+                                  user_actor: user_actor_subject,
+                                  subreddit_actor: subreddit_actor_subject,
+                                  post_actor: post_actor_subject,
+                                  comment_actor: comment_actor_subject,
+                                  upvote_actor: upvote_actor_subject,
+                                  feed_actor: feed_actor_subject,
+                                  direct_message_actor: direct_message_actor_subject,
+                                )
+                              Ok(worker_actors)
+                            }
+                            Error(msg) ->
+                              Error("Failed to create SubredditActor: " <> msg)
+                          }
                         }
                         Error(msg) ->
-                          Error("Failed to create SubredditActor: " <> msg)
+                          Error("Failed to create CommentActor: " <> msg)
                       }
                     }
-                    Error(msg) ->
-                      Error("Failed to create CommentActor: " <> msg)
+                    Error(msg) -> Error("Failed to create PostActor: " <> msg)
                   }
                 }
-                Error(msg) -> Error("Failed to create PostActor: " <> msg)
+                Error(msg) -> Error("Failed to create FeedActor: " <> msg)
               }
             }
-            Error(msg) -> Error("Failed to create FeedActor: " <> msg)
+            Error(msg) -> Error("Failed to create UpvoteActor: " <> msg)
           }
         }
-        Error(msg) -> Error("Failed to create UpvoteActor: " <> msg)
+        Error(msg) -> Error("Failed to create UserActor: " <> msg)
       }
     }
-    Error(msg) -> Error("Failed to create UserActor: " <> msg)
+    Error(msg) -> Error("Failed to create DirectMessageActor: " <> msg)
   }
 }
 
@@ -219,9 +232,6 @@ fn handle_master_engine_message(
     }
     GetDirectMessages(reply, user_id) -> {
       handle_get_direct_messages(state, reply, user_id)
-    }
-    MarkMessageAsRead(reply, user_id, message_id) -> {
-      handle_mark_message_as_read(state, reply, user_id, message_id)
     }
 
     // System management
@@ -511,7 +521,7 @@ fn handle_get_subreddit_comments(
 fn handle_vote_on_post(
   state: MasterEngineState,
   reply: process.Subject(Result(Nil, String)),
-  user_id: String,
+  _user_id: String,
   post_id: String,
   vote_type: VoteType,
 ) -> actor.Next(MasterEngineState, MasterEngineMessage) {
@@ -615,33 +625,35 @@ fn handle_get_feed(
 fn handle_send_direct_message(
   state: MasterEngineState,
   reply: process.Subject(Result(DirectMessage, String)),
-  _sender_id: String,
-  _recipient_id: String,
-  _content: String,
+  sender_id: String,
+  recipient_id: String,
+  content: String,
 ) -> actor.Next(MasterEngineState, MasterEngineMessage) {
-  // TODO: Implement direct message sending
-  let _ = process.send(reply, Error("Direct message sending not implemented"))
+  let dm_message =
+    DirectMessageSendMessage(reply, sender_id, recipient_id, content)
+  io.println(
+    "🔄 MASTER ENGINE forwarding direct message to DirectMessageActor from: "
+    <> sender_id
+    <> " to: "
+    <> recipient_id,
+  )
+  let _ = process.send(state.direct_message_actor, dm_message)
+  io.println("Direct message request sent to DirectMessageActor")
   actor.continue(state)
 }
 
 fn handle_get_direct_messages(
   state: MasterEngineState,
   reply: process.Subject(Result(List(DirectMessage), String)),
-  _user_id: String,
+  user_id: String,
 ) -> actor.Next(MasterEngineState, MasterEngineMessage) {
-  // TODO: Implement direct messages retrieval
-  let _ = process.send(reply, Ok([]))
-  actor.continue(state)
-}
-
-fn handle_mark_message_as_read(
-  state: MasterEngineState,
-  reply: process.Subject(Result(Nil, String)),
-  _user_id: String,
-  _message_id: String,
-) -> actor.Next(MasterEngineState, MasterEngineMessage) {
-  // TODO: Implement mark as read logic
-  let _ = process.send(reply, Ok(Nil))
+  let dm_message = DirectMessageGetMessages(reply, user_id)
+  io.println(
+    "🔄 MASTER ENGINE forwarding direct messages retrieval to DirectMessageActor for: "
+    <> user_id,
+  )
+  let _ = process.send(state.direct_message_actor, dm_message)
+  io.println("Direct messages retrieval request sent to DirectMessageActor")
   actor.continue(state)
 }
 

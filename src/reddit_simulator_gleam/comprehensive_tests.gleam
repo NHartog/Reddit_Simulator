@@ -6,14 +6,14 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
 import reddit_simulator_gleam/engine_types.{
-  type MasterEngineMessage, CreateComment, CreatePost, CreateSubreddit, GetFeed,
-  GetPost, GetSubredditComments, GetSubredditWithMembers, GetUser, RegisterUser,
+  type MasterEngineMessage, CreateComment, CreatePost, CreateSubreddit,
+  GetDirectMessages, GetFeed, GetPost, GetSubredditComments,
+  GetSubredditWithMembers, GetUser, RegisterUser, SendDirectMessage,
   SubscribeToSubreddit, VoteOnPost,
 }
 import reddit_simulator_gleam/master_engine_actor.{create_master_engine_actor}
 import reddit_simulator_gleam/simulation_types.{
-  type Comment, type CommentTree, type FeedObject, type VoteType, Downvote,
-  Upvote,
+  type Comment, type CommentTree, type DirectMessage, Downvote, Upvote,
 }
 
 // =============================================================================
@@ -39,6 +39,7 @@ pub fn run_all_tests() {
       test_comment_management(engine_subject, user_data, subreddit_data)
       test_upvote_functionality(engine_subject, user_data, post_data.post_id)
       test_feed_functionality(engine_subject, user_data, subreddit_data)
+      test_direct_message_functionality(engine_subject, user_data)
 
       io.println("")
       io.println("=== All tests completed successfully! ===")
@@ -837,6 +838,199 @@ fn test_get_feed(engine_subject: process.Subject(MasterEngineMessage)) {
     }
     Error(_) -> {
       io.println("✗ Feed retrieval timeout")
+    }
+  }
+}
+
+// =============================================================================
+// DIRECT MESSAGE FUNCTIONALITY TESTS
+// =============================================================================
+
+fn test_direct_message_functionality(
+  engine_subject: process.Subject(MasterEngineMessage),
+  user_data: UserTestData,
+) {
+  io.println("")
+  io.println("--- Testing Direct Message Functionality ---")
+
+  // Test 5-message chain between user 1 and user 3
+  case get_user_by_index(user_data.user_ids, 0) {
+    None -> {
+      io.println("✗ User 1 not found, cannot test direct messages")
+    }
+    Some(user1_id) -> {
+      case get_user_by_index(user_data.user_ids, 2) {
+        None -> {
+          io.println("✗ User 3 not found, cannot test direct messages")
+        }
+        Some(user3_id) -> {
+          io.println("💬 Testing 5-message chain between User 1 and User 3...")
+          test_message_chain(engine_subject, user_data, user1_id, user3_id, 5)
+        }
+      }
+    }
+  }
+
+  // Test 5-message chain between user 3 and user 4
+  case get_user_by_index(user_data.user_ids, 2) {
+    None -> {
+      io.println("✗ User 3 not found, cannot test second message chain")
+    }
+    Some(user3_id) -> {
+      case get_user_by_index(user_data.user_ids, 3) {
+        None -> {
+          io.println("✗ User 4 not found, cannot test second message chain")
+        }
+        Some(user4_id) -> {
+          io.println("💬 Testing 5-message chain between User 3 and User 4...")
+          test_message_chain(engine_subject, user_data, user3_id, user4_id, 5)
+        }
+      }
+    }
+  }
+
+  io.println("✓ Direct message functionality test completed!")
+}
+
+fn test_message_chain(
+  engine_subject: process.Subject(MasterEngineMessage),
+  user_data: UserTestData,
+  user1_id: String,
+  user2_id: String,
+  message_count: Int,
+) {
+  let user1_name = get_username_by_id(user_data.user_id_to_name, user1_id)
+  let user2_name = get_username_by_id(user_data.user_id_to_name, user2_id)
+
+  // Create alternating messages between the two users
+  list.range(0, message_count)
+  |> list.each(fn(message_index) {
+    let is_user1_turn = message_index % 2 == 0
+    let sender_id = case is_user1_turn {
+      True -> user1_id
+      False -> user2_id
+    }
+    let sender_name = case is_user1_turn {
+      True -> user1_name
+      False -> user2_name
+    }
+    let recipient_id = case is_user1_turn {
+      True -> user2_id
+      False -> user1_id
+    }
+    let recipient_name = case is_user1_turn {
+      True -> user2_name
+      False -> user1_name
+    }
+
+    let message_content = case is_user1_turn {
+      True ->
+        "Hello "
+        <> recipient_name
+        <> "! This is message "
+        <> int.to_string(message_index + 1)
+        <> " from "
+        <> sender_name
+        <> "."
+      False ->
+        "Hi "
+        <> recipient_name
+        <> "! This is my response "
+        <> int.to_string(message_index + 1)
+        <> " to your message."
+    }
+
+    let reply = process.new_subject()
+    let message =
+      SendDirectMessage(reply, sender_id, recipient_id, message_content)
+
+    let _ = process.send(engine_subject, message)
+
+    case process.receive(reply, 1000) {
+      Ok(Ok(dm)) -> {
+        io.println(
+          "✓ Message "
+          <> int.to_string(message_index + 1)
+          <> " sent from "
+          <> sender_name
+          <> " to "
+          <> recipient_name,
+        )
+        io.println("  Content: \"" <> dm.content <> "\"")
+        io.println("  Message ID: " <> dm.id)
+      }
+      Ok(Error(msg)) -> {
+        io.println(
+          "✗ Message " <> int.to_string(message_index + 1) <> " failed: " <> msg,
+        )
+      }
+      Error(_) -> {
+        io.println(
+          "✗ Message " <> int.to_string(message_index + 1) <> " timeout",
+        )
+      }
+    }
+  })
+
+  // Test retrieving messages for both users
+  io.println("")
+  io.println("📥 Testing message retrieval for " <> user1_name <> "...")
+  test_get_user_messages(engine_subject, user_data, user1_id, user1_name)
+
+  io.println("")
+  io.println("📥 Testing message retrieval for " <> user2_name <> "...")
+  test_get_user_messages(engine_subject, user_data, user2_id, user2_name)
+}
+
+fn test_get_user_messages(
+  engine_subject: process.Subject(MasterEngineMessage),
+  user_data: UserTestData,
+  user_id: String,
+  username: String,
+) {
+  let reply = process.new_subject()
+  let message = GetDirectMessages(reply, user_id)
+
+  let _ = process.send(engine_subject, message)
+
+  case process.receive(reply, 1000) {
+    Ok(Ok(messages)) -> {
+      let message_count = list.length(messages)
+      io.println(
+        "✓ Retrieved "
+        <> int.to_string(message_count)
+        <> " messages for "
+        <> username,
+      )
+      io.println("")
+
+      // Display messages in chronological order (oldest first)
+      list.each(messages, fn(message) {
+        let sender_name =
+          get_username_by_id(user_data.user_id_to_name, message.sender_id)
+        let recipient_name =
+          get_username_by_id(user_data.user_id_to_name, message.recipient_id)
+
+        io.println(
+          "📨 Message from " <> sender_name <> " to " <> recipient_name <> ":",
+        )
+        io.println("  \"" <> message.content <> "\"")
+        io.println(
+          "  ID: "
+          <> message.id
+          <> ", Created: "
+          <> int.to_string(message.created_at),
+        )
+        io.println("")
+      })
+    }
+    Ok(Error(msg)) -> {
+      io.println(
+        "✗ Failed to retrieve messages for " <> username <> ": " <> msg,
+      )
+    }
+    Error(_) -> {
+      io.println("✗ Message retrieval timeout for " <> username)
     }
   }
 }

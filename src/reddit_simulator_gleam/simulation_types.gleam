@@ -100,7 +100,6 @@ pub type DirectMessage {
     recipient_id: String,
     content: String,
     created_at: Int,
-    is_read: Bool,
   )
 }
 

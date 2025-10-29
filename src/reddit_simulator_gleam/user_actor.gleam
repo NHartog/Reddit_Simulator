@@ -2,21 +2,30 @@ import gleam/dict
 import gleam/erlang/process
 import gleam/int
 import gleam/io
+import gleam/option
 import gleam/otp/actor
 import reddit_simulator_gleam/engine_types.{
-  type UserActorMessage, type UserEngineActorState, UserEngineActorState,
+  type DirectMessageActorMessage, type UserActorMessage,
+  type UserEngineActorState, DirectMessageAddUser, UserEngineActorState,
   UserGetUser, UserRegisterUser, UserShutdown,
 }
 import reddit_simulator_gleam/simulation_types.{
-  type StatusCode, type User, Status200, Status404, User, status_code_to_string,
+  Status200, Status404, User, status_code_to_string,
 }
 
 // =============================================================================
 // USER ACTOR IMPLEMENTATION
 // =============================================================================
 
-pub fn create_user_actor() -> Result(process.Subject(UserActorMessage), String) {
-  let initial_state = UserEngineActorState(users: dict.new(), next_user_id: 1)
+pub fn create_user_actor(
+  direct_message_actor: process.Subject(DirectMessageActorMessage),
+) -> Result(process.Subject(UserActorMessage), String) {
+  let initial_state =
+    UserEngineActorState(
+      users: dict.new(),
+      next_user_id: 1,
+      direct_message_actor: option.Some(direct_message_actor),
+    )
 
   case
     actor.new(initial_state)
@@ -63,7 +72,20 @@ fn handle_register_user(
     UserEngineActorState(
       users: dict.insert(state.users, user_id, user),
       next_user_id: state.next_user_id + 1,
+      direct_message_actor: state.direct_message_actor,
     )
+
+  // Send message to DirectMessageActor to add user
+  case state.direct_message_actor {
+    option.Some(dm_actor) -> {
+      let dm_reply = process.new_subject()
+      let _ = process.send(dm_actor, DirectMessageAddUser(dm_reply, user_id))
+    }
+    option.None -> {
+      // DirectMessageActor not available, continue without error
+      io.println("⚠️ DirectMessageActor not available for user " <> user_id)
+    }
+  }
 
   let status_code = Status200
   let response = status_code_to_string(status_code) <> ":" <> user_id
