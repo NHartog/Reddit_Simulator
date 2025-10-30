@@ -23,6 +23,7 @@ import reddit_simulator_gleam/engine_types.{
   VoteOnComment, VoteOnPost,
 }
 import reddit_simulator_gleam/feed_actor.{create_feed_actor}
+import reddit_simulator_gleam/metrics_actor.{type MetricsMessage}
 import reddit_simulator_gleam/post_actor.{create_post_actor}
 import reddit_simulator_gleam/simulation_types.{
   type Comment, type CommentTree, type DirectMessage, type FeedItem,
@@ -54,6 +55,7 @@ pub fn create_master_engine_actor() -> Result(
           upvote_actor: worker_actors.upvote_actor,
           feed_actor: worker_actors.feed_actor,
           direct_message_actor: worker_actors.direct_message_actor,
+          metrics: option.None,
         )
 
       case
@@ -156,6 +158,25 @@ fn handle_master_engine_message(
   message: MasterEngineMessage,
 ) -> actor.Next(MasterEngineState, MasterEngineMessage) {
   case message {
+    engine_types.ConnectMetrics(metrics) -> {
+      let new_state =
+        MasterEngineState(
+          user_actor: state.user_actor,
+          subreddit_actor: state.subreddit_actor,
+          post_actor: state.post_actor,
+          comment_actor: state.comment_actor,
+          upvote_actor: state.upvote_actor,
+          feed_actor: state.feed_actor,
+          direct_message_actor: state.direct_message_actor,
+          metrics: option.Some(metrics),
+        )
+      // Propagate to workers we care about
+      let _ =
+        process.send(state.post_actor, engine_types.PostConnectMetrics(metrics))
+      let _ =
+        process.send(state.feed_actor, engine_types.FeedConnectMetrics(metrics))
+      actor.continue(new_state)
+    }
     // User management
     RegisterUser(reply, username, email) -> {
       handle_register_user(state, reply, username, email)

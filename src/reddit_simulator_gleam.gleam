@@ -1,15 +1,7 @@
 import gleam/io
-import reddit_simulator_gleam/comprehensive_tests
+import reddit_simulator_gleam/project_4_initialization
 
 pub fn main() {
-  io.println("=== Reddit Simulator Comprehensive Test Suite ===")
-  io.println("Running all tests including upvote functionality...")
-  io.println("")
-
-  // Run all comprehensive tests
-  comprehensive_tests.run_all_tests()
-
-  io.println("")
-  io.println("=== All Tests Complete ===")
-  io.println("The Reddit Simulator is working correctly!")
+  io.println("=== Reddit Simulator: Demo Scenario Runner ===")
+  project_4_initialization.run_demo_simulation()
 }

@@ -80,10 +80,14 @@ fn handle_register_user(
     option.Some(dm_actor) -> {
       let dm_reply = process.new_subject()
       let _ = process.send(dm_actor, DirectMessageAddUser(dm_reply, user_id))
+      // Consume reply to avoid unexpected message warnings
+      let _ = process.receive(dm_reply, 100)
+      #()
     }
     option.None -> {
       // DirectMessageActor not available, continue without error
       io.println("⚠️ DirectMessageActor not available for user " <> user_id)
+      #()
     }
   }
 

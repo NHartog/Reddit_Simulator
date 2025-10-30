@@ -3,11 +3,13 @@ import gleam/erlang/process
 import gleam/int
 import gleam/io
 import gleam/list
+import gleam/option
 import gleam/otp/actor
 import reddit_simulator_gleam/engine_types.{
   type FeedActorMessage, type FeedActorState, FeedActorState, FeedAddPost,
   FeedGetFeed, FeedShutdown,
 }
+import reddit_simulator_gleam/metrics_actor.{type MetricsMessage}
 import reddit_simulator_gleam/simulation_types.{type FeedObject, FeedObject}
 
 // =============================================================================
@@ -15,7 +17,8 @@ import reddit_simulator_gleam/simulation_types.{type FeedObject, FeedObject}
 // =============================================================================
 
 pub fn create_feed_actor() -> Result(process.Subject(FeedActorMessage), String) {
-  let initial_state = FeedActorState(feed_posts: dict.new())
+  let initial_state =
+    FeedActorState(feed_posts: dict.new(), metrics: option.None)
 
   case
     actor.new(initial_state)
@@ -36,6 +39,14 @@ fn handle_feed_message(
   message: FeedActorMessage,
 ) -> actor.Next(FeedActorState, FeedActorMessage) {
   case message {
+    engine_types.FeedConnectMetrics(metrics) -> {
+      let new_state =
+        FeedActorState(
+          feed_posts: state.feed_posts,
+          metrics: option.Some(metrics),
+        )
+      actor.continue(new_state)
+    }
     FeedAddPost(reply, post_id, title, content) -> {
       handle_add_post(state, reply, post_id, title, content)
     }
@@ -63,7 +74,8 @@ fn handle_add_post(
   let feed_object = FeedObject(title: title, content: content)
   let updated_feed_posts = dict.insert(state.feed_posts, post_id, feed_object)
 
-  let updated_state = FeedActorState(feed_posts: updated_feed_posts)
+  let updated_state =
+    FeedActorState(feed_posts: updated_feed_posts, metrics: state.metrics)
 
   io.println(
     "📤 FEED ACTOR: Added post '"

@@ -98,8 +98,8 @@ fn handle_create_subreddit(
       actor.continue(state)
     }
     None -> {
-      // Create new subreddit
-      let subreddit_id = "subreddit_" <> int.to_string(state.next_subreddit_id)
+      // Create new subreddit; use the provided name as the ID
+      let subreddit_id = name
       let current_time = 0
       // TODO: Use actual timestamp
 
@@ -136,6 +136,8 @@ fn handle_create_subreddit(
           let dummy_reply = process.new_subject()
           let post_message = PostAddSubreddit(dummy_reply, subreddit_id)
           let _ = process.send(post_actor_subject, post_message)
+          // Consume reply to avoid unexpected message warnings
+          let _ = process.receive(dummy_reply, 100)
           io.println(
             "📤 SUBREDDIT ACTOR NOTIFYING: Post actor about new subreddit "
             <> subreddit_id,
@@ -155,6 +157,8 @@ fn handle_create_subreddit(
           let dummy_reply = process.new_subject()
           let comment_message = CommentAddSubreddit(dummy_reply, subreddit_id)
           let _ = process.send(comment_actor_subject, comment_message)
+          // Consume reply to avoid unexpected message warnings
+          let _ = process.receive(dummy_reply, 100)
           io.println(
             "📤 SUBREDDIT ACTOR NOTIFYING: Comment actor about new subreddit "
             <> subreddit_id,

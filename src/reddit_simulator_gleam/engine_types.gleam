@@ -1,6 +1,7 @@
 import gleam/dict.{type Dict}
 import gleam/erlang/process
 import gleam/option.{type Option}
+import reddit_simulator_gleam/metrics_actor.{type MetricsMessage}
 import reddit_simulator_gleam/simulation_types.{
   type Comment, type CommentTree, type DirectMessage, type FeedItem,
   type FeedObject, type Post, type Subreddit, type SubredditWithMembers,
@@ -113,6 +114,7 @@ pub type MasterEngineMessage {
 
   // System management
   GetSystemStats(reply: process.Subject(Result(SystemStats, String)))
+  ConnectMetrics(metrics: process.Subject(MetricsMessage))
   Shutdown
 }
 
@@ -125,6 +127,7 @@ pub type MasterEngineState {
     upvote_actor: process.Subject(UpvoteActorMessage),
     feed_actor: process.Subject(FeedActorMessage),
     direct_message_actor: process.Subject(DirectMessageActorMessage),
+    metrics: Option(process.Subject(MetricsMessage)),
   )
 }
 
@@ -220,6 +223,7 @@ pub type PostActorMessage {
     reply: process.Subject(Result(Nil, String)),
     subreddit_id: String,
   )
+  PostConnectMetrics(metrics: process.Subject(MetricsMessage))
   PostShutdown
 }
 
@@ -231,6 +235,7 @@ pub type PostActorState {
     next_post_id: Int,
     upvote_actor: process.Subject(UpvoteActorMessage),
     feed_actor: process.Subject(FeedActorMessage),
+    metrics: Option(process.Subject(MetricsMessage)),
   )
 }
 
@@ -306,6 +311,7 @@ pub type FeedActorMessage {
     reply: process.Subject(Result(List(FeedObject), String)),
     limit: Int,
   )
+  FeedConnectMetrics(metrics: process.Subject(MetricsMessage))
   FeedShutdown
 }
 
@@ -313,6 +319,7 @@ pub type FeedActorState {
   FeedActorState(
     feed_posts: Dict(String, FeedObject),
     // post_id -> FeedObject
+    metrics: Option(process.Subject(MetricsMessage)),
   )
 }
 

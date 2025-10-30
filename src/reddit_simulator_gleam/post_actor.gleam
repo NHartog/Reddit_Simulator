@@ -3,6 +3,7 @@ import gleam/erlang/process
 import gleam/int
 import gleam/io
 import gleam/list
+import gleam/option
 import gleam/order
 import gleam/otp/actor
 import reddit_simulator_gleam/engine_types.{
@@ -11,6 +12,7 @@ import reddit_simulator_gleam/engine_types.{
   PostCreatePost, PostGetPost, PostGetSubredditPosts, PostShutdown,
   UpvoteCreateEntry,
 }
+import reddit_simulator_gleam/metrics_actor.{type MetricsMessage}
 import reddit_simulator_gleam/simulation_types.{type Post, Post}
 
 // =============================================================================
@@ -28,6 +30,7 @@ pub fn create_post_actor(
       next_post_id: 1,
       upvote_actor: upvote_actor,
       feed_actor: feed_actor,
+      metrics: option.None,
     )
 
   case
@@ -49,6 +52,18 @@ fn handle_post_message(
   message: PostActorMessage,
 ) -> actor.Next(PostActorState, PostActorMessage) {
   case message {
+    engine_types.PostConnectMetrics(metrics) -> {
+      let new_state =
+        PostActorState(
+          posts: state.posts,
+          subreddit_posts: state.subreddit_posts,
+          next_post_id: state.next_post_id,
+          upvote_actor: state.upvote_actor,
+          feed_actor: state.feed_actor,
+          metrics: option.Some(metrics),
+        )
+      actor.continue(new_state)
+    }
     PostCreatePost(reply, title, content, author_id, subreddit_id) -> {
       handle_create_post(state, reply, title, content, author_id, subreddit_id)
     }
@@ -140,6 +155,7 @@ fn handle_create_post(
               next_post_id: state.next_post_id + 1,
               upvote_actor: state.upvote_actor,
               feed_actor: state.feed_actor,
+              metrics: state.metrics,
             )
 
           // Send message to UpvoteActor to create entry for this post
@@ -257,6 +273,7 @@ fn handle_add_subreddit(
       next_post_id: state.next_post_id,
       upvote_actor: state.upvote_actor,
       feed_actor: state.feed_actor,
+      metrics: state.metrics,
     )
 
   io.println(
