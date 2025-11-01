@@ -31,6 +31,8 @@ pub fn create_post_actor(
       upvote_actor: upvote_actor,
       feed_actor: feed_actor,
       metrics: option.None,
+      queue_len: 0,
+      in_flight: 0,
     )
 
   case
@@ -61,6 +63,8 @@ fn handle_post_message(
           upvote_actor: state.upvote_actor,
           feed_actor: state.feed_actor,
           metrics: option.Some(metrics),
+          queue_len: state.queue_len,
+          in_flight: state.in_flight,
         )
       actor.continue(new_state)
     }
@@ -156,6 +160,8 @@ fn handle_create_post(
               upvote_actor: state.upvote_actor,
               feed_actor: state.feed_actor,
               metrics: state.metrics,
+              queue_len: state.queue_len,
+              in_flight: state.in_flight,
             )
 
           // Send message to UpvoteActor to create entry for this post
@@ -274,6 +280,8 @@ fn handle_add_subreddit(
       upvote_actor: state.upvote_actor,
       feed_actor: state.feed_actor,
       metrics: state.metrics,
+      queue_len: state.queue_len,
+      in_flight: state.in_flight,
     )
 
   io.println(

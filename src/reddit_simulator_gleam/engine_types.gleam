@@ -236,6 +236,9 @@ pub type PostActorState {
     upvote_actor: process.Subject(UpvoteActorMessage),
     feed_actor: process.Subject(FeedActorMessage),
     metrics: Option(process.Subject(MetricsMessage)),
+    // instrumentation
+    queue_len: Int,
+    in_flight: Int,
   )
 }
 
@@ -320,6 +323,9 @@ pub type FeedActorState {
     feed_posts: Dict(String, FeedObject),
     // post_id -> FeedObject
     metrics: Option(process.Subject(MetricsMessage)),
+    // instrumentation
+    queue_len: Int,
+    in_flight: Int,
   )
 }
 

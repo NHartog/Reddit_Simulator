@@ -129,8 +129,9 @@ pub type ClientData {
 fn create_test_simulation_config() -> simulation_types.SimulationConfig {
   simulation_types.SimulationConfig(
     num_users: 10_000,
-    num_subreddits: 2,
+    num_subreddits: 2000,
     simulation_duration_ms: 60_000,
+    // 1 minute
     // 30 seconds
     zipf_alpha: 1.5,
     connection_probability: 0.8,
@@ -143,9 +144,11 @@ fn create_test_simulation_config() -> simulation_types.SimulationConfig {
     max_comments_per_user: 10,
     repost_probability: 0.1,
     enable_real_time_stats: True,
-    stats_update_interval_ms: 1000,
+    stats_update_interval_ms: 250,
     actor_timeout_ms: 5000,
     max_concurrent_operations: 10,
+    random_seed: 22,
+    enable_heterogeneity: False,
   )
 }
 
@@ -449,18 +452,20 @@ pub fn run_demo_simulation() {
       // Stop simulation
       stop_simulation(system)
 
-      // Shutdown system first so summary is the last thing printed
+      // Allow clients to settle
+      let settle1 = process.new_subject()
+      let _ = process.receive(settle1, 150)
+
+      // Shutdown system so no more logs interleave
       shutdown_simulation_system(system)
 
-      // Final stats summary (last line)
-      // Give actors a brief moment to finish any pending logs
-      let drain = process.new_subject()
-      let _ = process.receive(drain, 200)
-      io.println("================ Simulation Summary ================")
+      // Consolidated final report after shutdown
+      let settle2 = process.new_subject()
+      let _ = process.receive(settle2, 200)
+      io.println("================ Final Simulation Report ================")
       workload_scheduler.print_summary(stats)
-      // Print metrics snapshot if available
       case system.metrics {
-        None -> #()
+        None -> Nil
         Some(m) -> {
           let r = process.new_subject()
           let _ = process.send(m, metrics_actor.Snapshot(r))
@@ -478,10 +483,8 @@ pub fn run_demo_simulation() {
                 <> "/"
                 <> float.to_string(snap.reads_per_sec_10s)
                 <> "/"
-                <> float.to_string(snap.reads_per_sec_60s),
-              )
-              io.println(
-                "Latency post p50/p90/p99/p999="
+                <> float.to_string(snap.reads_per_sec_60s)
+                <> " | latency post p50/p90/p99/p999="
                 <> int.to_string(snap.post_p50_ms)
                 <> "/"
                 <> int.to_string(snap.post_p90_ms)
@@ -489,22 +492,28 @@ pub fn run_demo_simulation() {
                 <> int.to_string(snap.post_p99_ms)
                 <> "/"
                 <> int.to_string(snap.post_p999_ms)
-                <> " | read p50/p90/p99/p999="
+                <> " read p50/p90/p99/p999="
                 <> int.to_string(snap.read_p50_ms)
                 <> "/"
                 <> int.to_string(snap.read_p90_ms)
                 <> "/"
                 <> int.to_string(snap.read_p99_ms)
                 <> "/"
-                <> int.to_string(snap.read_p999_ms),
+                <> int.to_string(snap.read_p999_ms)
+                <> " | posts top1%/5%/10%="
+                <> float.to_string(snap.posts_top1p_share)
+                <> "/"
+                <> float.to_string(snap.posts_top5p_share)
+                <> "/"
+                <> float.to_string(snap.posts_top10p_share),
               )
-              #()
+              Nil
             }
-            Error(_) -> #()
+            Error(_) -> Nil
           }
         }
       }
-      io.println("===================================================")
+      io.println("=========================================================")
 
       io.println("🎉 Demo simulation completed!")
     }

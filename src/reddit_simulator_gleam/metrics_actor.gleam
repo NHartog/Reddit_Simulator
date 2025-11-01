@@ -61,6 +61,9 @@ pub type MetricsSnapshot {
     posts_zipf_r2: Float,
     fano_posts_60s: Float,
     fano_reads_60s: Float,
+    posts_top1p_share: Float,
+    posts_top5p_share: Float,
+    posts_top10p_share: Float,
   )
 }
 
@@ -214,6 +217,7 @@ fn build_snapshot(state: MetricsState) -> MetricsSnapshot {
   let read_ps = percentiles(state.read_lat_ms)
   let fano_posts = fano_index(state.posts_counts, 60)
   let fano_reads = fano_index(state.reads_counts, 60)
+  let #(p1, p5, p10) = top_k_shares(dict.values(state.posts_by_user))
 
   MetricsSnapshot(
     posts_per_sec_1s: posts_1s,
@@ -235,6 +239,9 @@ fn build_snapshot(state: MetricsState) -> MetricsSnapshot {
     posts_zipf_r2: 0.0,
     fano_posts_60s: fano_posts,
     fano_reads_60s: fano_reads,
+    posts_top1p_share: p1,
+    posts_top5p_share: p5,
+    posts_top10p_share: p10,
   )
 }
 
@@ -441,5 +448,32 @@ fn fano_index(counts: List(Int), window: Int) -> Float {
   case mean == 0.0 {
     True -> 0.0
     False -> var /. mean
+  }
+}
+
+fn top_k_shares(counts: List(Int)) -> #(Float, Float, Float) {
+  let sorted = list.sort(counts, fn(a, b) { int.compare(b, a) })
+  let len = list.length(sorted)
+  case len {
+    0 -> #(0.0, 0.0, 0.0)
+    _ -> {
+      let total = int.to_float(list.fold(sorted, 0, fn(a, v) { a + v }))
+      case total == 0.0 {
+        True -> #(0.0, 0.0, 0.0)
+        False -> {
+          let k1 = int.max(1, floor_div(len, 100))
+          let k5 = int.max(1, floor_div(len * 5, 100))
+          let k10 = int.max(1, floor_div(len * 10, 100))
+          let top1 = take(sorted, k1)
+          let top5 = take(sorted, k5)
+          let top10 = take(sorted, k10)
+          let s1 = int.to_float(list.fold(top1, 0, fn(a, v) { a + v })) /. total
+          let s5 = int.to_float(list.fold(top5, 0, fn(a, v) { a + v })) /. total
+          let s10 =
+            int.to_float(list.fold(top10, 0, fn(a, v) { a + v })) /. total
+          #(s1, s5, s10)
+        }
+      }
+    }
   }
 }

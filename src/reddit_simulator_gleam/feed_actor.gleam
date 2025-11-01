@@ -18,7 +18,12 @@ import reddit_simulator_gleam/simulation_types.{type FeedObject, FeedObject}
 
 pub fn create_feed_actor() -> Result(process.Subject(FeedActorMessage), String) {
   let initial_state =
-    FeedActorState(feed_posts: dict.new(), metrics: option.None)
+    FeedActorState(
+      feed_posts: dict.new(),
+      metrics: option.None,
+      queue_len: 0,
+      in_flight: 0,
+    )
 
   case
     actor.new(initial_state)
@@ -44,6 +49,8 @@ fn handle_feed_message(
         FeedActorState(
           feed_posts: state.feed_posts,
           metrics: option.Some(metrics),
+          queue_len: state.queue_len,
+          in_flight: state.in_flight,
         )
       actor.continue(new_state)
     }
@@ -75,7 +82,12 @@ fn handle_add_post(
   let updated_feed_posts = dict.insert(state.feed_posts, post_id, feed_object)
 
   let updated_state =
-    FeedActorState(feed_posts: updated_feed_posts, metrics: state.metrics)
+    FeedActorState(
+      feed_posts: updated_feed_posts,
+      metrics: state.metrics,
+      queue_len: state.queue_len,
+      in_flight: state.in_flight,
+    )
 
   io.println(
     "📤 FEED ACTOR: Added post '"

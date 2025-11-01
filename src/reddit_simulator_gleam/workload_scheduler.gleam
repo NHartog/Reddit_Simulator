@@ -10,9 +10,10 @@ import reddit_simulator_gleam/master_simulator_actor.{
   type MasterSimulatorMessage, TriggerClientAction,
 }
 import reddit_simulator_gleam/simulation_types.{
-  type SimulationConfig, type UserAction, CreateCommentAction, CreatePostAction,
-  GetDirectMessagesAction, GetFeedAction, SendDirectMessageAction,
-  SubscribeToSubredditAction,
+  type SimulationConfig, type UserAction, type VoteType, CreateCommentAction,
+  CreatePostAction, Downvote, GetDirectMessagesAction, GetFeedAction,
+  SendDirectMessageAction, SubscribeToSubredditAction, Upvote,
+  VoteOnCommentAction, VoteOnPostAction,
 }
 
 // =============================================================================
@@ -40,10 +41,21 @@ pub fn run_zipf_workload(
   client_ids: List(String),
   config: SimulationConfig,
 ) -> DispatchStats {
-  let weights = compute_zipf_weights(list.length(client_ids), config.zipf_alpha)
-
-  // Build a deterministic action cycle per client according to frequencies
-  let action_cycle = build_action_cycle(config)
+  let seed = case config.random_seed {
+    0 -> {
+      // Derive a seed from runtime randomness
+      let u = float.random()
+      int.max(1, floor_to_int(u *. 2_147_483_647.0))
+    }
+    n -> n
+  }
+  let rng0 = rng_seed(seed)
+  let weights =
+    compute_zipf_weights_varying(
+      list.length(client_ids),
+      config.zipf_alpha,
+      rng0,
+    )
 
   // Time-based ticks: use stats_update_interval_ms as tick length
   let tick_ms = case config.stats_update_interval_ms {
@@ -51,7 +63,6 @@ pub fn run_zipf_workload(
     n -> n
   }
   let ticks = int.max(1, config.simulation_duration_ms / tick_ms)
-  let top_k = clamp(1, list.length(client_ids), 50)
 
   let initial_stats =
     DispatchStats(
@@ -68,20 +79,28 @@ pub fn run_zipf_workload(
       top10p_share: 0.0,
     )
 
+  // Initialise per-user RNG streams and Poisson next-due schedule
+  let #(next_due_ms0, rngs0, rates_per_ms) =
+    init_poisson_per_user(weights, seed)
+
   let final_stats =
     run_ticks(
       master_simulator,
       client_ids,
       weights,
-      action_cycle,
       ticks,
-      top_k,
       0,
       initial_stats,
       tick_ms,
+      seed,
+      0,
+      next_due_ms0,
+      rngs0,
+      rates_per_ms,
+      config,
     )
 
-  let #(s1, s5, s10) = compute_top_k_shares(weights)
+  let #(s1, s5, s10) = compute_top_k_shares(weights, list.length(client_ids))
   DispatchStats(
     ..final_stats,
     top1p_share: s1,
@@ -94,12 +113,16 @@ fn run_ticks(
   master_simulator: process.Subject(MasterSimulatorMessage),
   client_ids: List(String),
   weights: List(Float),
-  action_cycle: List(UserAction),
   ticks: Int,
-  top_k: Int,
-  offset: Int,
+  current_time_ms: Int,
   stats: DispatchStats,
   tick_ms: Int,
+  master_seed: Int,
+  offset: Int,
+  next_due_ms: List(Int),
+  rngs: List(Rng),
+  rates_per_ms: List(Float),
+  config: SimulationConfig,
 ) -> DispatchStats {
   case ticks {
     0 -> stats
@@ -108,35 +131,78 @@ fn run_ticks(
       let sleeper = process.new_subject()
       let _ = process.receive(sleeper, tick_ms)
 
-      // Choose top_k clients each tick, rotate starting offset for fairness among equals
-      let ranked = rank_clients(weights, offset)
-      let chosen = take_first_n(map_fst_indices(ranked), top_k)
+      let now_ms = current_time_ms + tick_ms
+      // Print periodic stats every ~5 seconds
+      let crossed = { now_ms / 5000 } > { current_time_ms / 5000 }
+      case crossed {
+        True ->
+          io.println(
+            "⏱️ Stats 5s: actions="
+            <> int.to_string(stats.total_actions)
+            <> " posts="
+            <> int.to_string(stats.posts)
+            <> " comments="
+            <> int.to_string(stats.comments)
+            <> " votes="
+            <> int.to_string(stats.votes)
+            <> " dms="
+            <> int.to_string(stats.dms)
+            <> " feeds="
+            <> int.to_string(stats.feeds),
+          )
+        False -> Nil
+      }
 
-      let folded =
-        list.fold(chosen, #(stats, 0), fn(state, client_index) {
-          let acc_stats = elem1(state)
-          let action_idx = elem2(state)
-          let action =
-            get_at(action_cycle, action_idx) |> with_default_opt(GetFeedAction)
-          let _ =
-            dispatch_action(master_simulator, client_ids, client_index, action)
-          let updated_stats = update_stats(acc_stats, action)
-          let next_idx = next_index(action_idx, list.length(action_cycle))
-          #(updated_stats, next_idx)
+      // For each user: fire all actions due up to now (capped per tick)
+      let fold_indices = list.range(0, list.length(client_ids) - 1)
+
+      let updated =
+        list.fold(fold_indices, #(stats, next_due_ms, rngs), fn(acc, idx) {
+          let #(acc_stats, due_list, rng_list) = acc
+
+          let due_opt = get_at(due_list, idx)
+          let rng_opt = get_at(rng_list, idx)
+
+          case #(due_opt, rng_opt, get_at(rates_per_ms, idx)) {
+            #(Some(due0), Some(rng0), Some(rate_i)) -> {
+              let fired =
+                fire_due_actions(
+                  master_simulator,
+                  client_ids,
+                  idx,
+                  config,
+                  now_ms,
+                  rate_i,
+                  20,
+                  due0,
+                  rng0,
+                  acc_stats,
+                )
+              let #(stats2, due2, rng2) = fired
+              let due_list2 = set_at(due_list, idx, due2)
+              let rng_list2 = set_at(rng_list, idx, rng2)
+              #(stats2, due_list2, rng_list2)
+            }
+            _ -> acc
+          }
         })
 
-      let new_stats = elem1(folded)
+      let #(new_stats, next_due_ms2, rngs2) = updated
 
       run_ticks(
         master_simulator,
         client_ids,
         weights,
-        action_cycle,
         ticks - 1,
-        top_k,
-        next_index(offset, list.length(client_ids)),
+        now_ms,
         new_stats,
         tick_ms,
+        master_seed,
+        next_index(offset, list.length(client_ids)),
+        next_due_ms2,
+        rngs2,
+        rates_per_ms,
+        config,
       )
     }
   }
@@ -155,6 +221,43 @@ fn dispatch_action(
       Nil
     }
     None -> Nil
+  }
+}
+
+fn fire_due_actions(
+  master_simulator: process.Subject(MasterSimulatorMessage),
+  client_ids: List(String),
+  client_index: Int,
+  config: SimulationConfig,
+  now_ms: Int,
+  rate_per_ms: Float,
+  cap: Int,
+  due_ms: Int,
+  rng: Rng,
+  stats: DispatchStats,
+) -> #(DispatchStats, Int, Rng) {
+  case cap <= 0 || due_ms > now_ms {
+    True -> #(stats, due_ms, rng)
+    False -> {
+      let #(action, rng2) = sample_action(config, rng)
+      let _ =
+        dispatch_action(master_simulator, client_ids, client_index, action)
+      let stats2 = update_stats(stats, action)
+      let #(delta_ms, rng3) = sample_exponential_ms(rng2, rate_per_ms)
+      let due2 = due_ms + delta_ms
+      fire_due_actions(
+        master_simulator,
+        client_ids,
+        client_index,
+        config,
+        now_ms,
+        rate_per_ms,
+        cap - 1,
+        due2,
+        rng3,
+        stats2,
+      )
+    }
   }
 }
 
@@ -183,6 +286,214 @@ fn build_action_cycle(config: SimulationConfig) -> List(UserAction) {
   actions
 }
 
+// =============================================================================
+// RANDOMIZED ACTION SELECTION
+// =============================================================================
+
+type Rng {
+  Rng(state: Int)
+}
+
+fn rng_seed(seed: Int) -> Rng {
+  Rng(state: seed)
+}
+
+fn stream_for_client(master_seed: Int, client_index: Int) -> Rng {
+  let combined = master_seed + client_index * 1_001_001
+  let a = 1_103_515_245
+  let c = 12_345
+  let m = 2_147_483_647
+  let s_raw = a * combined + c
+  let q = floor_div_int(s_raw, m)
+  let s0 = s_raw - q * m
+  let s = case s0 < 0 {
+    True -> s0 + m
+    False -> s0
+  }
+  rng_seed(s)
+}
+
+fn rng_next(r: Rng) -> Rng {
+  // LCG parameters with 31-bit modulus
+  let a = 1_103_515_245
+  let c = 12_345
+  let m = 2_147_483_647
+  let s_raw = a * r.state + c
+  let q = floor_div_int(s_raw, m)
+  let s0 = s_raw - q * m
+  let s = case s0 < 0 {
+    True -> s0 + m
+    False -> s0
+  }
+  Rng(state: s)
+}
+
+fn rng_float01(r: Rng) -> #(Float, Rng) {
+  let m = 2_147_483_647
+  let r2 = rng_next(r)
+  let f = int.to_float(r2.state) /. int.to_float(m)
+  #(f, r2)
+}
+
+// =============================================================================
+// POISSON ARRIVALS HELPERS
+// =============================================================================
+
+fn init_poisson_per_user(
+  weights: List(Float),
+  master_seed: Int,
+) -> #(List(Int), List(Rng), List(Float)) {
+  // Target overall rate: 5000 actions/sec
+  let target_rps = 5000.0
+  let rates_per_sec = list.map(weights, fn(w) { target_rps *. w })
+  let rates_per_ms = list.map(rates_per_sec, fn(r) { r /. 1000.0 })
+
+  let indices = list.range(0, list.length(weights) - 1)
+  let init =
+    list.fold(indices, #([], [], []), fn(acc, idx) {
+      let #(due_list, rng_list, rate_list) = acc
+      let rng0 = stream_for_client(master_seed, idx)
+      let rate_ms = with_default_opt(get_at(rates_per_ms, idx), 0.0)
+      let #(delta_ms, rng1) = sample_exponential_ms(rng0, rate_ms)
+      let due0 = delta_ms
+      #([due0, ..due_list], [rng1, ..rng_list], [rate_ms, ..rate_list])
+    })
+  // Built in reverse; flip back
+  let #(d_init, r_init, rate_init) = init
+  #(list.reverse(d_init), list.reverse(r_init), list.reverse(rate_init))
+}
+
+fn sample_exponential_ms(rng: Rng, rate_per_ms: Float) -> #(Int, Rng) {
+  case rate_per_ms <. 1.0e-12 {
+    True -> #(10, rng)
+    // fallback small delay if rate is zero or negative
+    False -> {
+      let #(u0, r2) = rng_float01(rng)
+      // avoid zero
+      let u = case u0 <. 1.0e-9 {
+        True -> 1.0e-9
+        False -> u0
+      }
+      let ln = case float.logarithm(u) {
+        Ok(v) -> v
+        Error(_) -> 0.0
+      }
+      let delta = { 0.0 -. ln } /. rate_per_ms
+      let ms = int.max(1, floor_to_int(delta))
+      #(ms, r2)
+    }
+  }
+}
+
+fn set_at(xs: List(a), index: Int, value: a) -> List(a) {
+  set_at_loop(xs, index, 0, [], value)
+}
+
+fn set_at_loop(
+  xs: List(a),
+  target: Int,
+  current: Int,
+  acc: List(a),
+  value: a,
+) -> List(a) {
+  case xs {
+    [] -> list.reverse(acc)
+    [h, ..t] -> {
+      case current == target {
+        True ->
+          list.reverse([value, ..acc]) |> fn(prefix) { list.append(prefix, t) }
+        False -> set_at_loop(t, target, current + 1, [h, ..acc], value)
+      }
+    }
+  }
+}
+
+fn rng_int_range(r: Rng, min: Int, max: Int) -> #(Int, Rng) {
+  let r2 = rng_next(r)
+  let span = int.max(1, max - min + 1)
+  let raw = r2.state
+  let m = span
+  let v0 = raw % m
+  let v = case v0 < 0 {
+    True -> v0 + m
+    False -> v0
+  }
+  #(min + v, r2)
+}
+
+fn sample_action(config: SimulationConfig, r: Rng) -> #(UserAction, Rng) {
+  // Build cumulative distribution from config
+  let post_p = clampf(config.post_frequency)
+  let comment_p = clampf(config.comment_frequency)
+  let vote_p = clampf(config.vote_frequency)
+  let dm_p = clampf(config.message_frequency)
+  let feed_p = 0.2
+  let sub_p = 0.1
+  let total = post_p +. comment_p +. vote_p +. dm_p +. feed_p +. sub_p
+  let #(u, r2a) = rng_float01(r)
+  let x = u *. total
+  // Choose random subreddit index and recipient/post ids where applicable
+  let sub_max = int.max(1, config.num_subreddits) - 1
+  let user_max = int.max(1, config.num_users) - 1
+  let #(sub_idx, r2b) = rng_int_range(r2a, 0, sub_max)
+  let subreddit_id = "subreddit_" <> int.to_string(sub_idx)
+  case x <. post_p {
+    True -> #(CreatePostAction("Zipf post", "content", subreddit_id), r2b)
+    False -> {
+      let t1 = post_p +. comment_p
+      case x <. t1 {
+        True -> #(CreateCommentAction("Zipf comment", subreddit_id, None), r2b)
+        False -> {
+          let t2 = t1 +. vote_p
+          case x <. t2 {
+            True -> sample_vote(config, r2b)
+            False -> {
+              let t3 = t2 +. dm_p
+              case x <. t3 {
+                True -> {
+                  let #(u_idx, r2c) = rng_int_range(r2b, 0, user_max)
+                  let recipient = "user_" <> int.to_string(u_idx)
+                  #(SendDirectMessageAction(recipient, "hi"), r2c)
+                }
+                False -> {
+                  let t4 = t3 +. feed_p
+                  case x <. t4 {
+                    True -> #(GetFeedAction, r2b)
+                    False -> #(SubscribeToSubredditAction(subreddit_id), r2b)
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+fn sample_vote(config: SimulationConfig, r: Rng) -> #(UserAction, Rng) {
+  let #(choice, r2a) = rng_float01(r)
+  // Choose a random post id in a broad range to spread interactions
+  let #(post_num, r2b) = rng_int_range(r2a, 1, 100_000)
+  let post_id = "post_" <> int.to_string(post_num)
+  case choice <. 0.5 {
+    True -> #(VoteOnPostAction(post_id, Upvote), r2b)
+    False -> #(VoteOnPostAction(post_id, Downvote), r2b)
+  }
+}
+
+fn clampf(p: Float) -> Float {
+  case p <. 0.0 {
+    True -> 0.0
+    False -> {
+      case p >. 1.0 {
+        True -> 1.0
+        False -> p
+      }
+    }
+  }
+}
+
 fn update_stats(stats: DispatchStats, action: UserAction) -> DispatchStats {
   let base =
     DispatchStats(
@@ -203,6 +514,8 @@ fn update_stats(stats: DispatchStats, action: UserAction) -> DispatchStats {
     CreatePostAction(_, _, _) -> DispatchStats(..base, posts: base.posts + 1)
     CreateCommentAction(_, _, _) ->
       DispatchStats(..base, comments: base.comments + 1)
+    VoteOnPostAction(_, _) -> DispatchStats(..base, votes: base.votes + 1)
+    VoteOnCommentAction(_, _) -> DispatchStats(..base, votes: base.votes + 1)
     SendDirectMessageAction(_, _) -> DispatchStats(..base, dms: base.dms + 1)
     SubscribeToSubredditAction(_) ->
       DispatchStats(..base, subscriptions: base.subscriptions + 1)
@@ -243,6 +556,36 @@ fn compute_zipf_weights(n: Int, _alpha: Float) -> List(Float) {
   let raw = list.map(ranks, fn(r) { 1.0 /. int.to_float(r) })
   let sum = list.fold(raw, 0.0, fn(acc, x) { acc +. x })
   list.map(raw, fn(x) { x /. sum })
+}
+
+fn compute_zipf_weights_varying(n: Int, alpha: Float, rng: Rng) -> List(Float) {
+  // Vary alpha slightly and add small per-rank jitter; renormalize
+  let #(u_eps, r2) = rng_float01(rng)
+  let alpha_jitter = { u_eps *. 0.2 } -. 0.1
+  let a = alpha +. alpha_jitter
+  let ranks = list.range(1, n)
+  let jittered =
+    list.fold(ranks, #([], r2), fn(acc, r) {
+      let xs = elem1(acc)
+      let rr = elem2(acc)
+      let #(u, rr2) = rng_float01(rr)
+      let eps = { u *. 0.1 } -. 0.05
+      let pow_res = float.power(int.to_float(r), a)
+      let denom = case pow_res {
+        Ok(v) -> v
+        Error(_) -> 1.0
+      }
+      let base = 1.0 /. denom
+      let w = base *. { 1.0 +. eps }
+      #([w, ..xs], rr2)
+    })
+  let ws_rev = elem1(jittered)
+  let ws = list.reverse(ws_rev)
+  let sum = list.fold(ws, 0.0, fn(acc, x) { acc +. x })
+  case sum <=. 0.0 {
+    True -> compute_zipf_weights(n, alpha)
+    False -> list.map(ws, fn(x) { x /. sum })
+  }
 }
 
 fn rank_clients(weights: List(Float), offset: Int) -> List(#(Int, Float)) {
@@ -326,23 +669,39 @@ fn float_compare_desc(a: Float, b: Float) -> Order {
   }
 }
 
-fn compute_top_k_shares(weights: List(Float)) -> #(Float, Float, Float) {
+fn compute_top_k_shares(
+  weights: List(Float),
+  total_users: Int,
+) -> #(Float, Float, Float) {
   let sorted = list.sort(weights, fn(a, b) { float_compare_desc(a, b) })
   let len = list.length(sorted)
   case len {
     0 -> #(0.0, 0.0, 0.0)
     _ -> {
-      let k1 = int.max(1, floor_div_int(len, 100))
-      let k5 = int.max(1, floor_div_int(len * 5, 100))
-      let k10 = int.max(1, floor_div_int(len * 10, 100))
+      // Use len (actual weights) not total_users to ensure we don't exceed bounds
+      let n = int.max(1, len)
+      let k1_raw = int.max(1, floor_div_int(n, 100))
+      let k5_raw = int.max(1, floor_div_int(n * 5, 100))
+      let k10_raw = int.max(1, floor_div_int(n * 10, 100))
+      let k1 = int.min(k1_raw, len)
+      let k5 = int.min(k5_raw, len)
+      let k10 = int.min(k10_raw, len)
       let sum_all = list.fold(sorted, 0.0, fn(acc, x) { acc +. x })
-      let top1 = take_first_n(sorted, k1)
-      let top5 = take_first_n(sorted, k5)
-      let top10 = take_first_n(sorted, k10)
-      let s1 = list.fold(top1, 0.0, fn(acc, x) { acc +. x }) /. sum_all
-      let s5 = list.fold(top5, 0.0, fn(acc, x) { acc +. x }) /. sum_all
-      let s10 = list.fold(top10, 0.0, fn(acc, x) { acc +. x }) /. sum_all
-      #(s1, s5, s10)
+      case sum_all == 0.0 {
+        True -> #(0.0, 0.0, 0.0)
+        False -> {
+          let top1 = take_first_n(sorted, k1)
+          let top5 = take_first_n(sorted, k5)
+          let top10 = take_first_n(sorted, k10)
+          let s1 = list.fold(top1, 0.0, fn(acc, x) { acc +. x }) /. sum_all
+          let s5 = list.fold(top5, 0.0, fn(acc, x) { acc +. x }) /. sum_all
+          let s10 = list.fold(top10, 0.0, fn(acc, x) { acc +. x }) /. sum_all
+          // Ensure monotonicity: top10 >= top5 >= top1
+          let s5_corrected = float.max(s5, s1)
+          let s10_corrected = float.max(s10, s5_corrected)
+          #(s1, s5_corrected, s10_corrected)
+        }
+      }
     }
   }
 }

@@ -153,6 +153,8 @@ pub type SimulationConfig {
     stats_update_interval_ms: Int,
     actor_timeout_ms: Int,
     max_concurrent_operations: Int,
+    random_seed: Int,
+    enable_heterogeneity: Bool,
   )
 }
 

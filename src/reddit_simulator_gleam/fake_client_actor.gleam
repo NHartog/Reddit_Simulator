@@ -7,10 +7,7 @@ import reddit_simulator_gleam/engine_types.{
   GetFeed, SendDirectMessage, SubscribeToSubreddit, UnsubscribeFromSubreddit,
   VoteOnComment, VoteOnPost,
 }
-import reddit_simulator_gleam/metrics_actor.{
-  type MetricsEventType, type MetricsMessage, DM, Post, Read, RecordComplete,
-  RecordEnqueue,
-}
+import reddit_simulator_gleam/metrics_actor
 import reddit_simulator_gleam/simulation_types.{
   type SimulationConfig, type UserAction, type VoteType, CreateCommentAction,
   CreatePostAction, Downvote, GetDirectMessagesAction, GetFeedAction,
@@ -26,7 +23,7 @@ pub type FakeClientMessage {
   StartSimulation
   StopSimulation
   ConnectToEngine(engine: process.Subject(MasterEngineMessage))
-  ConnectToMetrics(metrics: process.Subject(MetricsMessage))
+  ConnectToMetrics(metrics: process.Subject(metrics_actor.MetricsMessage))
   PerformAction(action: UserAction)
   Shutdown
 }
@@ -37,8 +34,7 @@ pub type FakeClientState {
     master_engine: Option(process.Subject(MasterEngineMessage)),
     config: SimulationConfig,
     is_running: Bool,
-    metrics: Option(process.Subject(MetricsMessage)),
-    sim_time_ms: Int,
+    metrics: Option(process.Subject(metrics_actor.MetricsMessage)),
   )
 }
 
@@ -57,7 +53,6 @@ pub fn create_fake_client_actor(
       config: config,
       is_running: False,
       metrics: None,
-      sim_time_ms: 0,
     )
 
   case
@@ -85,7 +80,6 @@ fn handle_fake_client_message(
           config: state.config,
           is_running: True,
           metrics: state.metrics,
-          sim_time_ms: state.sim_time_ms,
         )
       actor.continue(new_state)
     }
@@ -99,7 +93,6 @@ fn handle_fake_client_message(
           config: state.config,
           is_running: state.is_running,
           metrics: state.metrics,
-          sim_time_ms: state.sim_time_ms,
         )
       actor.continue(new_state)
     }
@@ -113,7 +106,6 @@ fn handle_fake_client_message(
           config: state.config,
           is_running: state.is_running,
           metrics: Some(metrics),
-          sim_time_ms: state.sim_time_ms,
         )
       actor.continue(new_state)
     }
@@ -127,7 +119,6 @@ fn handle_fake_client_message(
           config: state.config,
           is_running: False,
           metrics: state.metrics,
-          sim_time_ms: state.sim_time_ms,
         )
       actor.continue(new_state)
     }
@@ -204,45 +195,59 @@ fn perform_create_post(
   let reply = process.new_subject()
   let message = CreatePost(reply, title, content, state.user_id, subreddit_id)
 
+  // Metrics enqueue (use simple 0ms base for now)
+  case state.metrics {
+    Some(m) -> {
+      let _ =
+        process.send(
+          m,
+          metrics_actor.RecordEnqueue(
+            metrics_actor.Post,
+            Some(subreddit_id),
+            state.user_id,
+            0,
+          ),
+        )
+      #()
+    }
+    None -> #()
+  }
+
   io.println("📝 CLIENT " <> state.user_id <> ": Creating post: " <> title)
-  // metrics enqueue
-  let enqueue_ms = state.sim_time_ms
-  send_metrics_enqueue(
-    state.metrics,
-    Post,
-    Some(subreddit_id),
-    state.user_id,
-    enqueue_ms,
-  )
   let _ = process.send(engine, message)
 
   case process.receive(reply, 5000) {
     Ok(Ok(_post)) -> {
       io.println("✅ CLIENT " <> state.user_id <> ": Post created successfully")
-      let service_ms = 20
-      let complete_ms = enqueue_ms + service_ms
-      send_metrics_complete(
-        state.metrics,
-        Post,
-        Some(subreddit_id),
-        state.user_id,
-        enqueue_ms,
-        complete_ms,
-      )
-      let new_state = FakeClientState(..state, sim_time_ms: complete_ms)
-      actor.continue(new_state)
+      // Metrics complete (dummy 1ms complete)
+      case state.metrics {
+        Some(m) -> {
+          let _ =
+            process.send(
+              m,
+              metrics_actor.RecordComplete(
+                metrics_actor.Post,
+                Some(subreddit_id),
+                state.user_id,
+                0,
+                1,
+              ),
+            )
+          #()
+        }
+        None -> #()
+      }
+      actor.continue(state)
     }
     Ok(Error(msg)) -> {
       io.println(
         "❌ CLIENT " <> state.user_id <> ": Post creation failed: " <> msg,
       )
-      let new_state = FakeClientState(..state, sim_time_ms: enqueue_ms + 5)
-      actor.continue(new_state)
+      actor.continue(state)
     }
     Error(_) -> {
       io.println("❌ CLIENT " <> state.user_id <> ": Post creation timeout")
-      let new_state = FakeClientState(..state, sim_time_ms: enqueue_ms + 5)
-      actor.continue(new_state)
+      actor.continue(state)
     }
   }
 }
@@ -265,14 +270,6 @@ fn perform_create_comment(
     )
 
   io.println("💬 CLIENT " <> state.user_id <> ": Creating comment")
-  let enqueue_ms = state.sim_time_ms
-  send_metrics_enqueue(
-    state.metrics,
-    Post,
-    Some(subreddit_id),
-    state.user_id,
-    enqueue_ms,
-  )
   let _ = process.send(engine, message)
 
   case process.receive(reply, 5000) {
@@ -280,30 +277,17 @@ fn perform_create_comment(
       io.println(
         "✅ CLIENT " <> state.user_id <> ": Comment created successfully",
       )
-      let service_ms = 10
-      let complete_ms = enqueue_ms + service_ms
-      send_metrics_complete(
-        state.metrics,
-        Post,
-        Some(subreddit_id),
-        state.user_id,
-        enqueue_ms,
-        complete_ms,
-      )
-      let new_state = FakeClientState(..state, sim_time_ms: complete_ms)
-      actor.continue(new_state)
+      actor.continue(state)
     }
     Ok(Error(msg)) -> {
       io.println(
         "❌ CLIENT " <> state.user_id <> ": Comment creation failed: " <> msg,
       )
-      let new_state = FakeClientState(..state, sim_time_ms: enqueue_ms + 5)
-      actor.continue(new_state)
+      actor.continue(state)
     }
     Error(_) -> {
       io.println("❌ CLIENT " <> state.user_id <> ": Comment creation timeout")
-      let new_state = FakeClientState(..state, sim_time_ms: enqueue_ms + 5)
-      actor.continue(new_state)
+      actor.continue(state)
     }
   }
 }
@@ -395,8 +379,6 @@ fn perform_send_direct_message(
   let message = SendDirectMessage(reply, state.user_id, recipient_id, content)
 
   io.println("💌 CLIENT " <> state.user_id <> ": Sending DM to " <> recipient_id)
-  let enqueue_ms = state.sim_time_ms
-  send_metrics_enqueue(state.metrics, DM, None, state.user_id, enqueue_ms)
   let _ = process.send(engine, message)
 
   case process.receive(reply, 5000) {
@@ -404,30 +386,17 @@ fn perform_send_direct_message(
       io.println(
         "✅ CLIENT " <> state.user_id <> ": Direct message sent successfully",
       )
-      let service_ms = 8
-      let complete_ms = enqueue_ms + service_ms
-      send_metrics_complete(
-        state.metrics,
-        DM,
-        None,
-        state.user_id,
-        enqueue_ms,
-        complete_ms,
-      )
-      let new_state = FakeClientState(..state, sim_time_ms: complete_ms)
-      actor.continue(new_state)
+      actor.continue(state)
     }
     Ok(Error(msg)) -> {
       io.println(
         "❌ CLIENT " <> state.user_id <> ": Direct message failed: " <> msg,
       )
-      let new_state = FakeClientState(..state, sim_time_ms: enqueue_ms + 5)
-      actor.continue(new_state)
+      actor.continue(state)
     }
     Error(_) -> {
       io.println("❌ CLIENT " <> state.user_id <> ": Direct message timeout")
-      let new_state = FakeClientState(..state, sim_time_ms: enqueue_ms + 5)
-      actor.continue(new_state)
+      actor.continue(state)
     }
   }
 }
@@ -512,11 +481,25 @@ fn perform_get_feed(
 ) -> actor.Next(FakeClientState, FakeClientMessage) {
   let reply = process.new_subject()
   let message = GetFeed(reply, 10)
-  // Get 10 feed items
+  // Metrics enqueue for read
+  case state.metrics {
+    Some(m) -> {
+      let _ =
+        process.send(
+          m,
+          metrics_actor.RecordEnqueue(
+            metrics_actor.Read,
+            None,
+            state.user_id,
+            0,
+          ),
+        )
+      #()
+    }
+    None -> #()
+  }
 
   io.println("📰 CLIENT " <> state.user_id <> ": Getting feed")
-  let enqueue_ms = state.sim_time_ms
-  send_metrics_enqueue(state.metrics, Read, None, state.user_id, enqueue_ms)
   let _ = process.send(engine, message)
 
   case process.receive(reply, 5000) {
@@ -524,30 +507,35 @@ fn perform_get_feed(
       io.println(
         "✅ CLIENT " <> state.user_id <> ": Feed retrieved successfully",
       )
-      let service_ms = 5
-      let complete_ms = enqueue_ms + service_ms
-      send_metrics_complete(
-        state.metrics,
-        Read,
-        None,
-        state.user_id,
-        enqueue_ms,
-        complete_ms,
-      )
-      let new_state = FakeClientState(..state, sim_time_ms: complete_ms)
-      actor.continue(new_state)
+      // Metrics complete
+      case state.metrics {
+        Some(m) -> {
+          let _ =
+            process.send(
+              m,
+              metrics_actor.RecordComplete(
+                metrics_actor.Read,
+                None,
+                state.user_id,
+                0,
+                1,
+              ),
+            )
+          #()
+        }
+        None -> #()
+      }
+      actor.continue(state)
     }
     Ok(Error(msg)) -> {
       io.println(
         "❌ CLIENT " <> state.user_id <> ": Feed retrieval failed: " <> msg,
       )
-      let new_state = FakeClientState(..state, sim_time_ms: enqueue_ms + 5)
-      actor.continue(new_state)
+      actor.continue(state)
     }
     Error(_) -> {
       io.println("❌ CLIENT " <> state.user_id <> ": Feed retrieval timeout")
-      let new_state = FakeClientState(..state, sim_time_ms: enqueue_ms + 5)
-      actor.continue(new_state)
+      actor.continue(state)
     }
   }
 }
@@ -560,8 +548,6 @@ fn perform_get_direct_messages(
   let message = GetDirectMessages(reply, state.user_id)
 
   io.println("📬 CLIENT " <> state.user_id <> ": Getting direct messages")
-  let enqueue_ms = state.sim_time_ms
-  send_metrics_enqueue(state.metrics, Read, None, state.user_id, enqueue_ms)
   let _ = process.send(engine, message)
 
   case process.receive(reply, 5000) {
@@ -571,18 +557,7 @@ fn perform_get_direct_messages(
         <> state.user_id
         <> ": Direct messages retrieved successfully",
       )
-      let service_ms = 5
-      let complete_ms = enqueue_ms + service_ms
-      send_metrics_complete(
-        state.metrics,
-        Read,
-        None,
-        state.user_id,
-        enqueue_ms,
-        complete_ms,
-      )
-      let new_state = FakeClientState(..state, sim_time_ms: complete_ms)
-      actor.continue(new_state)
+      actor.continue(state)
     }
     Ok(Error(msg)) -> {
       io.println(
@@ -591,15 +566,13 @@ fn perform_get_direct_messages(
         <> ": Direct messages retrieval failed: "
         <> msg,
       )
-      let new_state = FakeClientState(..state, sim_time_ms: enqueue_ms + 5)
-      actor.continue(new_state)
+      actor.continue(state)
     }
     Error(_) -> {
       io.println(
         "❌ CLIENT " <> state.user_id <> ": Direct messages retrieval timeout",
       )
-      let new_state = FakeClientState(..state, sim_time_ms: enqueue_ms + 5)
-      actor.continue(new_state)
+      actor.continue(state)
     }
   }
 }
@@ -613,43 +586,5 @@ fn error_to_string(err: actor.StartError) -> String {
     actor.InitTimeout -> "Initialization timeout"
     actor.InitFailed(message) -> message
     actor.InitExited(_) -> "Actor initialization exited"
-  }
-}
-
-fn send_metrics_enqueue(
-  metrics: Option(process.Subject(MetricsMessage)),
-  type_: MetricsEventType,
-  subreddit: Option(String),
-  user_id: String,
-  enqueue_ms: Int,
-) {
-  case metrics {
-    None -> #()
-    Some(m) -> {
-      let _ =
-        process.send(m, RecordEnqueue(type_, subreddit, user_id, enqueue_ms))
-      #()
-    }
-  }
-}
-
-fn send_metrics_complete(
-  metrics: Option(process.Subject(MetricsMessage)),
-  type_: MetricsEventType,
-  subreddit: Option(String),
-  user_id: String,
-  enqueue_ms: Int,
-  complete_ms: Int,
-) {
-  case metrics {
-    None -> #()
-    Some(m) -> {
-      let _ =
-        process.send(
-          m,
-          RecordComplete(type_, subreddit, user_id, enqueue_ms, complete_ms),
-        )
-      #()
-    }
   }
 }
