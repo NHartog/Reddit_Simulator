@@ -49,7 +49,7 @@ fn handle_user_actor_message(
       handle_get_user(state, reply, user_id)
     }
     UserShutdown -> {
-      io.println("UserActor shutting down...")
+
       actor.stop()
     }
   }
@@ -86,14 +86,14 @@ fn handle_register_user(
     }
     option.None -> {
       // DirectMessageActor not available, continue without error
-      io.println("⚠️ DirectMessageActor not available for user " <> user_id)
+
       #()
     }
   }
 
   let status_code = Status200
   let response = status_code_to_string(status_code) <> ":" <> user_id
-  io.println("📤 USER ACTOR SENDING: " <> response)
+
   let _ = process.send(reply, response)
   actor.continue(updated_state)
 }
@@ -107,14 +107,14 @@ fn handle_get_user(
     Ok(user) -> {
       let status_code = Status200
       let response = status_code_to_string(status_code) <> ":" <> user.id
-      io.println("📤 USER ACTOR SENDING: " <> response)
+
       let _ = process.send(reply, response)
       actor.continue(state)
     }
     Error(_) -> {
       let status_code = Status404
       let response = status_code_to_string(status_code) <> ":User not found"
-      io.println("📤 USER ACTOR SENDING: " <> response)
+
       let _ = process.send(reply, response)
       actor.continue(state)
     }

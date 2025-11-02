@@ -52,7 +52,6 @@ fn handle_upvote_message(
       handle_get_upvote(state, reply, post_id)
     }
     UpvoteShutdown -> {
-      io.println("UpvoteActor shutting down...")
       actor.stop()
     }
   }
@@ -80,7 +79,6 @@ fn handle_create_entry(
       let updated_upvotes = dict.insert(state.upvotes, post_id, new_upvote)
       let updated_state = UpvoteActorState(upvotes: updated_upvotes)
 
-      io.println("📤 UPVOTE ACTOR: Created upvote entry for post " <> post_id)
       let _ = process.send(reply, Ok(Nil))
       actor.continue(updated_state)
     }
@@ -111,14 +109,6 @@ fn handle_upvote(
         )
       let updated_upvotes = dict.insert(state.upvotes, post_id, updated_upvote)
       let updated_state = UpvoteActorState(upvotes: updated_upvotes)
-
-      io.println(
-        "📤 UPVOTE ACTOR: Upvoted post "
-        <> post_id
-        <> " (karma: "
-        <> int.to_string(updated_upvote.karma)
-        <> ")",
-      )
       let _ = process.send(reply, Ok(updated_upvote))
       actor.continue(updated_state)
     }
@@ -149,14 +139,6 @@ fn handle_downvote(
         )
       let updated_upvotes = dict.insert(state.upvotes, post_id, updated_upvote)
       let updated_state = UpvoteActorState(upvotes: updated_upvotes)
-
-      io.println(
-        "📤 UPVOTE ACTOR: Downvoted post "
-        <> post_id
-        <> " (karma: "
-        <> int.to_string(updated_upvote.karma)
-        <> ")",
-      )
       let _ = process.send(reply, Ok(updated_upvote))
       actor.continue(updated_state)
     }
@@ -179,13 +161,6 @@ fn handle_get_upvote(
       actor.continue(state)
     }
     Ok(upvote) -> {
-      io.println(
-        "📤 UPVOTE ACTOR: Retrieved upvote data for post "
-        <> post_id
-        <> " (karma: "
-        <> int.to_string(upvote.karma)
-        <> ")",
-      )
       let _ = process.send(reply, Ok(upvote))
       actor.continue(state)
     }

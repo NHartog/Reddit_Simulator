@@ -81,7 +81,6 @@ fn handle_post_message(
       handle_add_subreddit(state, reply, subreddit_id)
     }
     PostShutdown -> {
-      io.println("PostActor shutting down...")
       actor.stop()
     }
   }
@@ -180,14 +179,6 @@ fn handle_create_post(
               FeedAddPost(feed_reply, post_id, title, content),
             )
 
-          io.println(
-            "📤 POST ACTOR SENDING: Created post '"
-            <> title
-            <> "' with ID "
-            <> post_id
-            <> " in subreddit "
-            <> subreddit_id,
-          )
           let _ = process.send(reply, Ok(new_post))
           actor.continue(updated_state)
         }
@@ -212,12 +203,6 @@ fn handle_get_post(
       actor.continue(state)
     }
     Ok(post) -> {
-      io.println(
-        "📤 POST ACTOR SENDING: Retrieved post '"
-        <> post.title
-        <> "' with ID "
-        <> post_id,
-      )
       let _ = process.send(reply, Ok(post))
       actor.continue(state)
     }
@@ -246,13 +231,6 @@ fn handle_get_subreddit_posts(
     Ok(post_ids) -> {
       // Get posts from post IDs
       let posts = get_posts_from_ids(state.posts, post_ids, limit)
-      let post_count = list.length(posts)
-      io.println(
-        "📤 POST ACTOR SENDING: Retrieved "
-        <> int.to_string(post_count)
-        <> " posts from subreddit "
-        <> subreddit_id,
-      )
       let _ = process.send(reply, Ok(posts))
       actor.continue(state)
     }
@@ -284,11 +262,6 @@ fn handle_add_subreddit(
       in_flight: state.in_flight,
     )
 
-  io.println(
-    "📤 POST ACTOR SENDING: Added subreddit "
-    <> subreddit_id
-    <> " to post tracking",
-  )
   let _ = process.send(reply, Ok(Nil))
   actor.continue(updated_state)
 }

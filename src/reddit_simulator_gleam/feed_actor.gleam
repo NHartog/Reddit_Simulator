@@ -61,7 +61,6 @@ fn handle_feed_message(
       handle_get_feed(state, reply, limit)
     }
     FeedShutdown -> {
-      io.println("FeedActor shutting down...")
       actor.stop()
     }
   }
@@ -89,13 +88,6 @@ fn handle_add_post(
       in_flight: state.in_flight,
     )
 
-  io.println(
-    "📤 FEED ACTOR: Added post '"
-    <> title
-    <> "' with ID "
-    <> post_id
-    <> " to feed",
-  )
   let _ = process.send(reply, Ok(Nil))
   actor.continue(updated_state)
 }
@@ -111,15 +103,6 @@ fn handle_get_feed(
 ) -> actor.Next(FeedActorState, FeedActorMessage) {
   let all_feed_objects = dict.values(state.feed_posts)
   let limited_feed = list.take(all_feed_objects, limit)
-  let feed_count = list.length(limited_feed)
-
-  io.println(
-    "📤 FEED ACTOR: Retrieved "
-    <> int.to_string(feed_count)
-    <> " posts from feed (limit: "
-    <> int.to_string(limit)
-    <> ")",
-  )
   let _ = process.send(reply, Ok(limited_feed))
   actor.continue(state)
 }

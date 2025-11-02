@@ -4,6 +4,7 @@ import gleam/int
 import gleam/io
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/string
 import reddit_simulator_gleam/engine_types.{
   type MasterEngineMessage, CreateSubreddit, RegisterUser,
 }
@@ -17,8 +18,6 @@ import reddit_simulator_gleam/master_simulator_actor.{
   create_master_simulator_actor,
 }
 
-// import reddit_simulator_gleam/scenario_config
-// import reddit_simulator_gleam/scenario_runner
 import reddit_simulator_gleam/metrics_actor
 import reddit_simulator_gleam/simulation_types.{
   CreateCommentAction, CreatePostAction, SendDirectMessageAction,
@@ -31,21 +30,21 @@ import reddit_simulator_gleam/workload_scheduler
 // =============================================================================
 
 pub fn initialize_simulation_system() -> Result(SimulationSystem, String) {
-  io.println("🚀 PROJECT 4: Initializing simulation system...")
+  io.println("PROJECT 4: Initializing simulation system...")
 
   // Step 1: Create Master Engine Actor
   case create_master_engine_actor() {
     Ok(master_engine) -> {
-      io.println("✅ Master Engine Actor created successfully")
+      io.println("Master Engine Actor created successfully")
 
       // Step 2: Create Master Simulator Actor
       case create_master_simulator_actor() {
         Ok(master_simulator) -> {
-          io.println("✅ Master Simulator Actor created successfully")
+          io.println("Master Simulator Actor created successfully")
 
           // Step 3: Connect simulator to engine
           let _ = process.send(master_simulator, ConnectToEngine(master_engine))
-          io.println("✅ Simulator connected to engine")
+          io.println("Simulator connected to engine")
 
           // Step 3b: Create metrics actor and connect
           let metrics_opt = case metrics_actor.create_metrics_actor() {
@@ -55,7 +54,7 @@ pub fn initialize_simulation_system() -> Result(SimulationSystem, String) {
                   master_simulator,
                   master_simulator_actor.ConnectToMetrics(metrics),
                 )
-              io.println("✅ Simulator connected to metrics")
+              io.println("Simulator connected to metrics")
               // Connect metrics to engine
               let _ =
                 process.send(
@@ -65,7 +64,7 @@ pub fn initialize_simulation_system() -> Result(SimulationSystem, String) {
               Some(metrics)
             }
             Error(msg) -> {
-              io.println("❌ Failed to create metrics actor: " <> msg)
+              io.println("Failed to create metrics actor: " <> msg)
               None
             }
           }
@@ -76,7 +75,7 @@ pub fn initialize_simulation_system() -> Result(SimulationSystem, String) {
           // Step 5: Create and register fake clients
           case create_and_register_clients(master_simulator, config) {
             Ok(client_data) -> {
-              io.println("✅ Fake clients created and registered")
+              io.println("Fake clients created and registered")
 
               let system =
                 SimulationSystem(
@@ -231,7 +230,7 @@ fn create_clients_recursive(
 // =============================================================================
 
 fn setup_initial_data(system: SimulationSystem) {
-  io.println("🔧 PROJECT 4: Setting up initial data...")
+  io.println("PROJECT 4: Setting up initial data...")
 
   // Register users with the engine
   list.each(system.clients, fn(client_data) {
@@ -241,7 +240,7 @@ fn setup_initial_data(system: SimulationSystem) {
   // Create initial subreddits
   create_initial_subreddits(system.master_engine, system.config.num_subreddits)
 
-  io.println("✅ Initial data setup completed")
+  io.println("Actors set up")
 }
 
 fn register_user_with_engine(
@@ -257,12 +256,8 @@ fn register_user_with_engine(
 
   // Wait for response (in a real implementation, this would be handled asynchronously)
   case process.receive(reply, 5000) {
-    Ok(registered_user_id) -> {
-      io.println("👤 User registered: " <> registered_user_id)
-    }
-    Error(_) -> {
-      io.println("❌ Failed to register user: " <> user_id)
-    }
+    Ok(_registered_user_id) -> Nil
+    Error(_) -> Nil
   }
 }
 
@@ -284,27 +279,14 @@ fn create_initial_subreddits(
     let _ = process.send(master_engine, message)
 
     case process.receive(reply, 5000) {
-      Ok(Ok(subreddit)) -> {
-        io.println("📋 Subreddit created: " <> subreddit.name)
-        subreddit.id
-      }
-      Ok(Error(msg)) -> {
-        io.println(
-          "❌ Failed to create subreddit " <> subreddit_name <> ": " <> msg,
-        )
-        ""
-      }
-      Error(_) -> {
-        io.println("❌ Timeout creating subreddit " <> subreddit_name)
-        ""
-      }
+      Ok(Ok(subreddit)) -> subreddit.id
+      Ok(Error(_msg)) -> ""
+      Error(_) -> ""
     }
   })
   |> list.filter(fn(id) { id != "" })
   |> list.length
-  |> fn(count) {
-    io.println("📋 Created " <> int.to_string(count) <> " subreddits")
-  }
+  |> fn(_count) { Nil }
 }
 
 // =============================================================================
@@ -312,23 +294,22 @@ fn create_initial_subreddits(
 // =============================================================================
 
 pub fn start_simulation(system: SimulationSystem) {
-  io.println("🚀 PROJECT 4: Starting simulation...")
+  io.println("Starting simulation")
   let _ = process.send(system.master_simulator, StartSimulation(system.config))
-  io.println("✅ Simulation started")
 }
 
 pub fn stop_simulation(system: SimulationSystem) {
-  io.println("⏹️ PROJECT 4: Stopping simulation...")
+  io.println("PROJECT 4: Stopping simulation...")
   let _ = process.send(system.master_simulator, StopSimulation)
-  io.println("✅ Simulation stopped")
+  io.println("Simulation stopped")
 }
 
 pub fn trigger_test_actions(system: SimulationSystem) {
-  io.println("🎯 PROJECT 4: Triggering test actions...")
+  io.println("PROJECT 4: Triggering test actions...")
 
   // Trigger some test actions on different clients
   case system.clients {
-    [] -> io.println("❌ No clients available for testing")
+    [] -> io.println("No clients available for testing")
     [first_client, ..rest_clients] -> {
       // Test post creation
       let post_action =
@@ -402,7 +383,7 @@ pub fn trigger_test_actions(system: SimulationSystem) {
         }
       }
 
-      io.println("✅ Test actions triggered")
+      io.println("Test actions triggered")
     }
   }
 }
@@ -412,7 +393,7 @@ pub fn trigger_test_actions(system: SimulationSystem) {
 // =============================================================================
 
 pub fn shutdown_simulation_system(system: SimulationSystem) {
-  io.println("🔌 PROJECT 4: Shutting down simulation system...")
+  io.println("PROJECT 4: Shutting down simulation system...")
 
   // Stop simulation first
   let _ = process.send(system.master_simulator, StopSimulation)
@@ -423,7 +404,7 @@ pub fn shutdown_simulation_system(system: SimulationSystem) {
   // Shutdown master engine
   let _ = process.send(system.master_engine, engine_types.Shutdown)
 
-  io.println("✅ Simulation system shutdown completed")
+  io.println("Simulation system shutdown completed")
 }
 
 // =============================================================================
@@ -431,11 +412,11 @@ pub fn shutdown_simulation_system(system: SimulationSystem) {
 // =============================================================================
 
 pub fn run_demo_simulation() {
-  io.println("🎬 PROJECT 4: Running demo simulation...")
+  io.println("PROJECT 4: Running demo simulation...")
 
   case initialize_simulation_system() {
     Ok(system) -> {
-      io.println("✅ System initialized successfully")
+      io.println("System initialized successfully")
 
       // Start simulation
       start_simulation(system)
@@ -462,7 +443,9 @@ pub fn run_demo_simulation() {
       // Consolidated final report after shutdown
       let settle2 = process.new_subject()
       let _ = process.receive(settle2, 200)
-      io.println("================ Final Simulation Report ================")
+      io.println("\n" <> string.repeat("=", 70))
+      io.println("                    FINAL SIMULATION REPORT")
+      io.println(string.repeat("=", 70))
       workload_scheduler.print_summary(stats)
       case system.metrics {
         None -> Nil
@@ -472,40 +455,24 @@ pub fn run_demo_simulation() {
           case process.receive(r, 1000) {
             Ok(snap) -> {
               io.println(
-                "Throughput pps(1/10/60)="
-                <> float.to_string(snap.posts_per_sec_1s)
-                <> "/"
-                <> float.to_string(snap.posts_per_sec_10s)
-                <> "/"
+                "\nPerformance Metrics\n"
+                <> "  Throughput (Actions/Second):\n"
+                <> "    ├─ Posts: "
                 <> float.to_string(snap.posts_per_sec_60s)
-                <> " rps(1/10/60)="
-                <> float.to_string(snap.reads_per_sec_1s)
-                <> "/"
-                <> float.to_string(snap.reads_per_sec_10s)
-                <> "/"
+                <> " posts/sec (1min avg)\n"
+                <> "    └─ Reads (Feeds): "
                 <> float.to_string(snap.reads_per_sec_60s)
-                <> " | latency post p50/p90/p99/p999="
-                <> int.to_string(snap.post_p50_ms)
-                <> "/"
-                <> int.to_string(snap.post_p90_ms)
-                <> "/"
-                <> int.to_string(snap.post_p99_ms)
-                <> "/"
-                <> int.to_string(snap.post_p999_ms)
-                <> " read p50/p90/p99/p999="
-                <> int.to_string(snap.read_p50_ms)
-                <> "/"
-                <> int.to_string(snap.read_p90_ms)
-                <> "/"
-                <> int.to_string(snap.read_p99_ms)
-                <> "/"
-                <> int.to_string(snap.read_p999_ms)
-                <> " | posts top1%/5%/10%="
-                <> float.to_string(snap.posts_top1p_share)
-                <> "/"
-                <> float.to_string(snap.posts_top5p_share)
-                <> "/"
-                <> float.to_string(snap.posts_top10p_share),
+                <> " reads/sec (1min avg)\n"
+                <> "  Activity Concentration (Observed from Posts):\n"
+                <> "    ├─ Top 1% of active users: "
+                <> float.to_string(snap.posts_top1p_share *. 100.0)
+                <> "% of posts\n"
+                <> "    ├─ Top 5% of active users: "
+                <> float.to_string(snap.posts_top5p_share *. 100.0)
+                <> "% of posts\n"
+                <> "    └─ Top 10% of active users: "
+                <> float.to_string(snap.posts_top10p_share *. 100.0)
+                <> "% of posts\n",
               )
               Nil
             }
@@ -513,12 +480,11 @@ pub fn run_demo_simulation() {
           }
         }
       }
-      io.println("=========================================================")
-
-      io.println("🎉 Demo simulation completed!")
+      io.println("\n" <> string.repeat("=", 70))
+      io.println("Simulation completed successfully!\n")
     }
     Error(msg) -> {
-      io.println("❌ Failed to initialize simulation system: " <> msg)
+      io.println("Failed to initialize simulation system: " <> msg)
     }
   }
 }

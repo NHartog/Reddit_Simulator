@@ -107,12 +107,6 @@ fn handle_start_simulation(
   state: MasterSimulatorState,
   config: SimulationConfig,
 ) -> actor.Next(MasterSimulatorState, MasterSimulatorMessage) {
-  io.println(
-    "🚀 MASTER SIMULATOR: Starting simulation with "
-    <> int.to_string(config.num_users)
-    <> " users",
-  )
-
   let new_state =
     MasterSimulatorState(
       config: Some(config),
@@ -135,8 +129,6 @@ fn handle_start_simulation(
 fn handle_stop_simulation(
   state: MasterSimulatorState,
 ) -> actor.Next(MasterSimulatorState, MasterSimulatorMessage) {
-  io.println("⏹️ MASTER SIMULATOR: Stopping simulation")
-
   let new_state =
     MasterSimulatorState(
       config: state.config,
@@ -165,8 +157,6 @@ fn handle_add_client(
   client_id: String,
   client: process.Subject(FakeClientMessage),
 ) -> actor.Next(MasterSimulatorState, MasterSimulatorMessage) {
-  io.println("➕ MASTER SIMULATOR: Adding client " <> client_id)
-
   let new_clients = dict.insert(state.clients, client_id, client)
   let new_state =
     MasterSimulatorState(
@@ -209,8 +199,6 @@ fn handle_connect_to_engine(
   state: MasterSimulatorState,
   engine: process.Subject(MasterEngineMessage),
 ) -> actor.Next(MasterSimulatorState, MasterSimulatorMessage) {
-  io.println("🔗 MASTER SIMULATOR: Connecting to master engine")
-
   let new_state =
     MasterSimulatorState(
       config: state.config,
@@ -234,8 +222,6 @@ fn handle_connect_to_metrics(
   state: MasterSimulatorState,
   metrics: process.Subject(MetricsMessage),
 ) -> actor.Next(MasterSimulatorState, MasterSimulatorMessage) {
-  io.println("📈 MASTER SIMULATOR: Connecting to metrics actor")
-
   let new_state =
     MasterSimulatorState(
       config: state.config,
@@ -262,7 +248,6 @@ fn handle_trigger_client_action(
 ) -> actor.Next(MasterSimulatorState, MasterSimulatorMessage) {
   case dict.get(state.clients, client_id) {
     Error(_) -> {
-      io.println("❌ MASTER SIMULATOR: Client " <> client_id <> " not found")
       actor.continue(state)
     }
     Ok(client) -> {
@@ -275,8 +260,6 @@ fn handle_trigger_client_action(
 fn handle_shutdown(
   state: MasterSimulatorState,
 ) -> actor.Next(MasterSimulatorState, MasterSimulatorMessage) {
-  io.println("🔌 MASTER SIMULATOR: Shutting down")
-
   // Shutdown all clients
   dict.values(state.clients)
   |> list.map(fn(client) {

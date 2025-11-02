@@ -260,7 +260,6 @@ fn handle_master_engine_message(
       handle_get_system_stats(state, reply)
     }
     Shutdown -> {
-      io.println("MasterEngineActor shutting down...")
       actor.stop()
     }
   }
@@ -277,11 +276,9 @@ fn handle_register_user(
   email: String,
 ) -> actor.Next(MasterEngineState, MasterEngineMessage) {
   let user_message = UserRegisterUser(reply, username, email)
-  io.println(
-    "🔄 MASTER ENGINE forwarding registration to UserActor for: " <> username,
-  )
+
   let _ = process.send(state.user_actor, user_message)
-  io.println("User registration request sent to UserActor")
+
   actor.continue(state)
 }
 
@@ -291,11 +288,9 @@ fn handle_get_user(
   user_id: String,
 ) -> actor.Next(MasterEngineState, MasterEngineMessage) {
   let user_message = UserGetUser(reply, user_id)
-  io.println(
-    "🔄 MASTER ENGINE forwarding get user to UserActor for: " <> user_id,
-  )
+
   let _ = process.send(state.user_actor, user_message)
-  io.println("User retrieval request sent to UserActor")
+
   actor.continue(state)
 }
 
@@ -312,12 +307,9 @@ fn handle_create_subreddit(
 ) -> actor.Next(MasterEngineState, MasterEngineMessage) {
   let subreddit_message =
     SubredditCreateSubreddit(reply, name, description, creator_id)
-  io.println(
-    "🔄 MASTER ENGINE forwarding subreddit creation to SubredditActor for: "
-    <> name,
-  )
+
   let _ = process.send(state.subreddit_actor, subreddit_message)
-  io.println("Subreddit creation request sent to SubredditActor")
+
   actor.continue(state)
 }
 
@@ -327,12 +319,9 @@ fn handle_get_subreddit(
   subreddit_id: String,
 ) -> actor.Next(MasterEngineState, MasterEngineMessage) {
   let subreddit_message = SubredditGetSubreddit(reply, subreddit_id)
-  io.println(
-    "🔄 MASTER ENGINE forwarding subreddit retrieval to SubredditActor for: "
-    <> subreddit_id,
-  )
+
   let _ = process.send(state.subreddit_actor, subreddit_message)
-  io.println("Subreddit retrieval request sent to SubredditActor")
+
   actor.continue(state)
 }
 
@@ -343,14 +332,9 @@ fn handle_subscribe_to_subreddit(
   subreddit_id: String,
 ) -> actor.Next(MasterEngineState, MasterEngineMessage) {
   let subreddit_message = SubredditJoinSubreddit(reply, user_id, subreddit_id)
-  io.println(
-    "🔄 MASTER ENGINE forwarding subscription to SubredditActor for user: "
-    <> user_id
-    <> " to subreddit: "
-    <> subreddit_id,
-  )
+
   let _ = process.send(state.subreddit_actor, subreddit_message)
-  io.println("Subscription request sent to SubredditActor")
+
   actor.continue(state)
 }
 
@@ -361,14 +345,9 @@ fn handle_unsubscribe_from_subreddit(
   subreddit_id: String,
 ) -> actor.Next(MasterEngineState, MasterEngineMessage) {
   let subreddit_message = SubredditLeaveSubreddit(reply, user_id, subreddit_id)
-  io.println(
-    "🔄 MASTER ENGINE forwarding unsubscription to SubredditActor for user: "
-    <> user_id
-    <> " from subreddit: "
-    <> subreddit_id,
-  )
+
   let _ = process.send(state.subreddit_actor, subreddit_message)
-  io.println("Unsubscription request sent to SubredditActor")
+
   actor.continue(state)
 }
 
@@ -378,12 +357,9 @@ fn handle_get_subreddit_with_members(
   subreddit_id: String,
 ) -> actor.Next(MasterEngineState, MasterEngineMessage) {
   let subreddit_message = SubredditGetSubredditWithMembers(reply, subreddit_id)
-  io.println(
-    "🔄 MASTER ENGINE forwarding subreddit retrieval with members to SubredditActor for: "
-    <> subreddit_id,
-  )
+
   let _ = process.send(state.subreddit_actor, subreddit_message)
-  io.println("Subreddit retrieval with members request sent to SubredditActor")
+
   actor.continue(state)
 }
 
@@ -401,11 +377,9 @@ fn handle_create_post(
 ) -> actor.Next(MasterEngineState, MasterEngineMessage) {
   let post_message =
     PostCreatePost(reply, title, content, author_id, subreddit_id)
-  io.println(
-    "🔄 MASTER ENGINE forwarding post creation to PostActor for: " <> title,
-  )
+
   let _ = process.send(state.post_actor, post_message)
-  io.println("Post creation request sent to PostActor")
+
   actor.continue(state)
 }
 
@@ -417,11 +391,8 @@ fn handle_get_post(
   // First get the post from PostActor
   let post_reply = process.new_subject()
   let post_message = PostGetPost(post_reply, post_id)
-  io.println(
-    "🔄 MASTER ENGINE forwarding post retrieval to PostActor for: " <> post_id,
-  )
+
   let _ = process.send(state.post_actor, post_message)
-  io.println("Post retrieval request sent to PostActor")
 
   case process.receive(post_reply, 1000) {
     Ok(Ok(post)) -> {
@@ -446,19 +417,12 @@ fn handle_get_post(
               downvotes: upvote_data.downvotes,
               comment_count: post.comment_count,
             )
-          io.println(
-            "📤 MASTER ENGINE: Retrieved post with upvote data (upvotes: "
-            <> int.to_string(updated_post.upvotes)
-            <> ", downvotes: "
-            <> int.to_string(updated_post.downvotes)
-            <> ")",
-          )
           let _ = process.send(reply, Ok(updated_post))
           actor.continue(state)
         }
         _ -> {
           // If upvote data not available, return post as-is
-          io.println("📤 MASTER ENGINE: Retrieved post without upvote data")
+
           let _ = process.send(reply, Ok(post))
           actor.continue(state)
         }
@@ -482,12 +446,9 @@ fn handle_get_subreddit_posts(
   limit: Int,
 ) -> actor.Next(MasterEngineState, MasterEngineMessage) {
   let post_message = PostGetSubredditPosts(reply, subreddit_id, limit)
-  io.println(
-    "🔄 MASTER ENGINE forwarding subreddit posts retrieval to PostActor for: "
-    <> subreddit_id,
-  )
+
   let _ = process.send(state.post_actor, post_message)
-  io.println("Subreddit posts retrieval request sent to PostActor")
+
   actor.continue(state)
 }
 
@@ -555,17 +516,14 @@ fn handle_vote_on_post(
 
       case process.receive(upvote_reply, 1000) {
         Ok(Ok(_)) -> {
-          io.println("✓ Post upvoted successfully")
           let _ = process.send(reply, Ok(Nil))
           actor.continue(state)
         }
         Ok(Error(msg)) -> {
-          io.println("✗ Post upvote failed: " <> msg)
           let _ = process.send(reply, Error(msg))
           actor.continue(state)
         }
         Error(_) -> {
-          io.println("✗ Post upvote timeout")
           let _ = process.send(reply, Error("Upvote timeout"))
           actor.continue(state)
         }
@@ -578,17 +536,14 @@ fn handle_vote_on_post(
 
       case process.receive(upvote_reply, 1000) {
         Ok(Ok(_)) -> {
-          io.println("✓ Post downvoted successfully")
           let _ = process.send(reply, Ok(Nil))
           actor.continue(state)
         }
         Ok(Error(msg)) -> {
-          io.println("✗ Post downvote failed: " <> msg)
           let _ = process.send(reply, Error(msg))
           actor.continue(state)
         }
         Error(_) -> {
-          io.println("✗ Post downvote timeout")
           let _ = process.send(reply, Error("Downvote timeout"))
           actor.continue(state)
         }
@@ -630,12 +585,8 @@ fn handle_get_feed(
   limit: Int,
 ) -> actor.Next(MasterEngineState, MasterEngineMessage) {
   let feed_message = FeedGetFeed(reply, limit)
-  io.println(
-    "🔄 MASTER ENGINE forwarding feed retrieval to FeedActor with limit: "
-    <> int.to_string(limit),
-  )
   let _ = process.send(state.feed_actor, feed_message)
-  io.println("Feed retrieval request sent to FeedActor")
+
   actor.continue(state)
 }
 
@@ -652,14 +603,9 @@ fn handle_send_direct_message(
 ) -> actor.Next(MasterEngineState, MasterEngineMessage) {
   let dm_message =
     DirectMessageSendMessage(reply, sender_id, recipient_id, content)
-  io.println(
-    "🔄 MASTER ENGINE forwarding direct message to DirectMessageActor from: "
-    <> sender_id
-    <> " to: "
-    <> recipient_id,
-  )
+
   let _ = process.send(state.direct_message_actor, dm_message)
-  io.println("Direct message request sent to DirectMessageActor")
+
   actor.continue(state)
 }
 
@@ -669,12 +615,9 @@ fn handle_get_direct_messages(
   user_id: String,
 ) -> actor.Next(MasterEngineState, MasterEngineMessage) {
   let dm_message = DirectMessageGetMessages(reply, user_id)
-  io.println(
-    "🔄 MASTER ENGINE forwarding direct messages retrieval to DirectMessageActor for: "
-    <> user_id,
-  )
+
   let _ = process.send(state.direct_message_actor, dm_message)
-  io.println("Direct messages retrieval request sent to DirectMessageActor")
+
   actor.continue(state)
 }
 

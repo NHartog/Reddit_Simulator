@@ -139,7 +139,6 @@ fn handle_message(
       actor.continue(state)
     }
     Shutdown -> {
-      io.println("🔌 METRICS: Shutting down")
       actor.stop()
     }
   }
@@ -461,9 +460,15 @@ fn top_k_shares(counts: List(Int)) -> #(Float, Float, Float) {
       case total == 0.0 {
         True -> #(0.0, 0.0, 0.0)
         False -> {
-          let k1 = int.max(1, floor_div(len, 100))
-          let k5 = int.max(1, floor_div(len * 5, 100))
-          let k10 = int.max(1, floor_div(len * 10, 100))
+          let k1_raw = int.max(1, floor_div(len, 100))
+          let k5_raw = int.max(1, floor_div(len * 5, 100))
+          let k10_raw = int.max(1, floor_div(len * 10, 100))
+          // Ensure k5 > k1 and k10 > k5 to get distinct sets
+          let k1 = int.min(k1_raw, len)
+          let k5_uncapped = int.max(k1 + 1, k5_raw)
+          let k5 = int.min(k5_uncapped, len)
+          let k10_uncapped = int.max(k5 + 1, k10_raw)
+          let k10 = int.min(k10_uncapped, len)
           let top1 = take(sorted, k1)
           let top5 = take(sorted, k5)
           let top10 = take(sorted, k10)
@@ -471,7 +476,10 @@ fn top_k_shares(counts: List(Int)) -> #(Float, Float, Float) {
           let s5 = int.to_float(list.fold(top5, 0, fn(a, v) { a + v })) /. total
           let s10 =
             int.to_float(list.fold(top10, 0, fn(a, v) { a + v })) /. total
-          #(s1, s5, s10)
+          // Ensure monotonicity: top10 >= top5 >= top1
+          let s5_corrected = float.max(s5, s1)
+          let s10_corrected = float.max(s10, s5_corrected)
+          #(s1, s5_corrected, s10_corrected)
         }
       }
     }

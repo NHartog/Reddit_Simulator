@@ -98,6 +98,7 @@ pub fn run_zipf_workload(
       rngs0,
       rates_per_ms,
       config,
+      0,
     )
 
   let #(s1, s5, s10) = compute_top_k_shares(weights, list.length(client_ids))
@@ -123,6 +124,7 @@ fn run_ticks(
   rngs: List(Rng),
   rates_per_ms: List(Float),
   config: SimulationConfig,
+  check_counter: Int,
 ) -> DispatchStats {
   case ticks {
     0 -> stats
@@ -132,25 +134,41 @@ fn run_ticks(
       let _ = process.receive(sleeper, tick_ms)
 
       let now_ms = current_time_ms + tick_ms
-      // Print periodic stats every ~5 seconds
+      // Print periodic stats every 5 seconds
       let crossed = { now_ms / 5000 } > { current_time_ms / 5000 }
-      case crossed {
-        True ->
+      let #(updated_counter, _) = case crossed {
+        True -> {
+          let new_check_counter = check_counter + 1
+          let elapsed_sec = now_ms / 1000
+          let actions_per_sec =
+            int.to_float(stats.total_actions) /. int.to_float(elapsed_sec)
           io.println(
-            "⏱️ Stats 5s: actions="
+            "\n[check # "
+            <> int.to_string(new_check_counter)
+            <> "] "
+            <> "Total Actions: "
             <> int.to_string(stats.total_actions)
-            <> " posts="
+            <> " | Rate: "
+            <> float.to_string(actions_per_sec)
+            <> " actions/sec\n"
+            <> "  ├─ Posts: "
             <> int.to_string(stats.posts)
-            <> " comments="
+            <> " | Comments: "
             <> int.to_string(stats.comments)
-            <> " votes="
+            <> " | Votes: "
             <> int.to_string(stats.votes)
-            <> " dms="
+            <> "\n"
+            <> "  ├─ Feeds: "
+            <> int.to_string(stats.feeds)
+            <> " | Direct Messages: "
             <> int.to_string(stats.dms)
-            <> " feeds="
-            <> int.to_string(stats.feeds),
+            <> " | Subscriptions: "
+            <> int.to_string(stats.subscriptions)
+            <> "\n",
           )
-        False -> Nil
+          #(new_check_counter, Nil)
+        }
+        False -> #(check_counter, Nil)
       }
 
       // For each user: fire all actions due up to now (capped per tick)
@@ -203,6 +221,7 @@ fn run_ticks(
         rngs2,
         rates_per_ms,
         config,
+        updated_counter,
       )
     }
   }
@@ -528,26 +547,38 @@ fn update_stats(stats: DispatchStats, action: UserAction) -> DispatchStats {
 
 pub fn print_summary(stats: DispatchStats) {
   io.println(
-    "📊 Summary: actions="
+    "\nWorkload Summary\n"
+    <> "  Total Actions: "
     <> int.to_string(stats.total_actions)
-    <> " posts="
+    <> "\n"
+    <> "  ├─ Posts Created: "
     <> int.to_string(stats.posts)
-    <> " comments="
+    <> "\n"
+    <> "  ├─ Comments Created: "
     <> int.to_string(stats.comments)
-    <> " feed="
-    <> int.to_string(stats.feeds)
-    <> " dms="
-    <> int.to_string(stats.dms)
-    <> " subs="
-    <> int.to_string(stats.subscriptions)
-    <> " votes="
+    <> "\n"
+    <> "  ├─ Votes Cast: "
     <> int.to_string(stats.votes)
-    <> " | top1%="
-    <> float.to_string(stats.top1p_share)
-    <> " top5%="
-    <> float.to_string(stats.top5p_share)
-    <> " top10%="
-    <> float.to_string(stats.top10p_share),
+    <> "\n"
+    <> "  ├─ Feed Retrievals: "
+    <> int.to_string(stats.feeds)
+    <> "\n"
+    <> "  ├─ Direct Messages: "
+    <> int.to_string(stats.dms)
+    <> "\n"
+    <> "  └─ Subscriptions: "
+    <> int.to_string(stats.subscriptions)
+    <> "\n"
+    <> "  Activity Distribution (Zipf Top-K):\n"
+    <> "    ├─ Top 1% of users: "
+    <> float.to_string(stats.top1p_share *. 100.0)
+    <> "% of activity\n"
+    <> "    ├─ Top 5% of users: "
+    <> float.to_string(stats.top5p_share *. 100.0)
+    <> "% of activity\n"
+    <> "    └─ Top 10% of users: "
+    <> float.to_string(stats.top10p_share *. 100.0)
+    <> "% of activity\n",
   )
 }
 
@@ -683,9 +714,12 @@ fn compute_top_k_shares(
       let k1_raw = int.max(1, floor_div_int(n, 100))
       let k5_raw = int.max(1, floor_div_int(n * 5, 100))
       let k10_raw = int.max(1, floor_div_int(n * 10, 100))
+      // Ensure k5 > k1 and k10 > k5 to get distinct sets
       let k1 = int.min(k1_raw, len)
-      let k5 = int.min(k5_raw, len)
-      let k10 = int.min(k10_raw, len)
+      let k5_uncapped = int.max(k1 + 1, k5_raw)
+      let k5 = int.min(k5_uncapped, len)
+      let k10_uncapped = int.max(k5 + 1, k10_raw)
+      let k10 = int.min(k10_uncapped, len)
       let sum_all = list.fold(sorted, 0.0, fn(acc, x) { acc +. x })
       case sum_all == 0.0 {
         True -> #(0.0, 0.0, 0.0)

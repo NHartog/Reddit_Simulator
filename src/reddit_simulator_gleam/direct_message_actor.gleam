@@ -55,7 +55,6 @@ fn handle_direct_message_message(
       handle_get_messages(state, reply, user_id)
     }
     DirectMessageShutdown -> {
-      io.println("DirectMessageActor shutting down...")
       actor.stop()
     }
   }
@@ -86,11 +85,6 @@ fn handle_add_user(
           next_message_id: state.next_message_id,
         )
 
-      io.println(
-        "📤 DIRECT MESSAGE ACTOR SENDING: Added user "
-        <> user_id
-        <> " to DM tracking",
-      )
       let _ = process.send(reply, Ok(Nil))
       actor.continue(updated_state)
     }
@@ -138,14 +132,6 @@ fn handle_send_message(
           let updated_state =
             add_message_to_users(state, new_message, sender_id, recipient_id)
 
-          io.println(
-            "📤 DIRECT MESSAGE ACTOR SENDING: Created message '"
-            <> content
-            <> "' from "
-            <> sender_id
-            <> " to "
-            <> recipient_id,
-          )
           let _ = process.send(reply, Ok(new_message))
           actor.continue(updated_state)
         }
@@ -169,13 +155,6 @@ fn handle_get_messages(
       actor.continue(state)
     }
     Ok(messages) -> {
-      let message_count = list.length(messages)
-      io.println(
-        "📤 DIRECT MESSAGE ACTOR SENDING: Retrieved "
-        <> int.to_string(message_count)
-        <> " messages for user "
-        <> user_id,
-      )
       let _ = process.send(reply, Ok(messages))
       actor.continue(state)
     }

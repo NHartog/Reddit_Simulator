@@ -72,7 +72,6 @@ fn handle_comment_message(
       handle_add_subreddit(state, reply, subreddit_id)
     }
     CommentShutdown -> {
-      io.println("CommentActor shutting down...")
       actor.stop()
     }
   }
@@ -189,14 +188,6 @@ fn handle_create_comment(
           next_comment_id: state.next_comment_id + 1,
         )
 
-      io.println(
-        "📤 COMMENT ACTOR SENDING: Created comment "
-        <> comment_id
-        <> " in subreddit "
-        <> subreddit_id
-        <> " by "
-        <> author_id,
-      )
       let _ = process.send(reply, Ok(new_comment))
       actor.continue(updated_state)
     }
@@ -223,12 +214,6 @@ fn handle_get_comment(
       actor.continue(state)
     }
     Some(comment) -> {
-      io.println(
-        "📤 COMMENT ACTOR SENDING: Retrieved comment "
-        <> comment_id
-        <> " by "
-        <> comment.author_id,
-      )
       let _ = process.send(reply, Ok(comment))
       actor.continue(state)
     }
@@ -250,17 +235,6 @@ fn handle_get_subreddit_comments(
       actor.continue(state)
     }
     Ok(comment_tree) -> {
-      let comment_count = dict.size(comment_tree.comments)
-      let root_count = list.length(comment_tree.root_comments)
-      io.println(
-        "📤 COMMENT ACTOR SENDING: Retrieved "
-        <> int.to_string(comment_count)
-        <> " comments for subreddit "
-        <> subreddit_id
-        <> " ("
-        <> int.to_string(root_count)
-        <> " root comments)",
-      )
       let _ = process.send(reply, Ok(comment_tree))
       actor.continue(state)
     }
@@ -289,10 +263,6 @@ fn handle_add_subreddit(
       next_comment_id: state.next_comment_id,
     )
 
-  io.println(
-    "📤 COMMENT ACTOR SENDING: Added empty comment tree for subreddit "
-    <> subreddit_id,
-  )
   let _ = process.send(reply, Ok(Nil))
   actor.continue(updated_state)
 }

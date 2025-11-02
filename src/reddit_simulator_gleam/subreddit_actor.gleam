@@ -70,7 +70,6 @@ fn handle_subreddit_message(
       handle_get_subreddit_with_members(state, reply, subreddit_id)
     }
     SubredditShutdown -> {
-      io.println("SubredditActor shutting down...")
       actor.stop()
     }
   }
@@ -138,15 +137,10 @@ fn handle_create_subreddit(
           let _ = process.send(post_actor_subject, post_message)
           // Consume reply to avoid unexpected message warnings
           let _ = process.receive(dummy_reply, 100)
-          io.println(
-            "📤 SUBREDDIT ACTOR NOTIFYING: Post actor about new subreddit "
-            <> subreddit_id,
-          )
+          #()
         }
         None -> {
-          io.println(
-            "⚠️ SUBREDDIT ACTOR WARNING: No post actor available to notify",
-          )
+          #()
         }
       }
 
@@ -159,24 +153,13 @@ fn handle_create_subreddit(
           let _ = process.send(comment_actor_subject, comment_message)
           // Consume reply to avoid unexpected message warnings
           let _ = process.receive(dummy_reply, 100)
-          io.println(
-            "📤 SUBREDDIT ACTOR NOTIFYING: Comment actor about new subreddit "
-            <> subreddit_id,
-          )
+          #()
         }
         None -> {
-          io.println(
-            "⚠️ SUBREDDIT ACTOR WARNING: No comment actor available to notify",
-          )
+          #()
         }
       }
 
-      io.println(
-        "📤 SUBREDDIT ACTOR SENDING: Created subreddit "
-        <> name
-        <> " with ID "
-        <> subreddit_id,
-      )
       let _ = process.send(reply, Ok(new_subreddit))
       actor.continue(updated_state)
     }
@@ -252,12 +235,6 @@ fn handle_join_subreddit(
                   comment_actor: state.comment_actor,
                 )
 
-              io.println(
-                "📤 SUBREDDIT ACTOR SENDING: User "
-                <> user_id
-                <> " joined subreddit "
-                <> subreddit.name,
-              )
               let _ = process.send(reply, Ok(Nil))
               actor.continue(updated_state)
             }
@@ -337,12 +314,6 @@ fn handle_leave_subreddit(
                   comment_actor: state.comment_actor,
                 )
 
-              io.println(
-                "📤 SUBREDDIT ACTOR SENDING: User "
-                <> user_id
-                <> " left subreddit "
-                <> subreddit.name,
-              )
               let _ = process.send(reply, Ok(Nil))
               actor.continue(updated_state)
             }
@@ -375,24 +346,10 @@ fn handle_get_subreddit(
       // Get member information for logging
       case dict.get(state.subreddit_members, subreddit_id) {
         Error(_) -> {
-          io.println(
-            "📤 SUBREDDIT ACTOR SENDING: Retrieved subreddit "
-            <> subreddit.name
-            <> " (no members found)",
-          )
+          #()
         }
-        Ok(member_ids) -> {
-          let member_count = list.length(member_ids)
-          let member_list = string.join(member_ids, ", ")
-          io.println(
-            "📤 SUBREDDIT ACTOR SENDING: Retrieved subreddit "
-            <> subreddit.name
-            <> " with "
-            <> int.to_string(member_count)
-            <> " members: ["
-            <> member_list
-            <> "]",
-          )
+        Ok(_member_ids) -> {
+          #()
         }
       }
       let _ = process.send(reply, Ok(subreddit))
@@ -421,28 +378,12 @@ fn handle_get_subreddit_with_members(
         Error(_) -> {
           let subreddit_with_members =
             SubredditWithMembers(subreddit: subreddit, member_ids: [])
-          io.println(
-            "📤 SUBREDDIT ACTOR SENDING: Retrieved subreddit "
-            <> subreddit.name
-            <> " with members (no members found)",
-          )
           let _ = process.send(reply, Ok(subreddit_with_members))
           actor.continue(state)
         }
         Ok(member_ids) -> {
           let subreddit_with_members =
             SubredditWithMembers(subreddit: subreddit, member_ids: member_ids)
-          let member_count = list.length(member_ids)
-          let member_list = string.join(member_ids, ", ")
-          io.println(
-            "📤 SUBREDDIT ACTOR SENDING: Retrieved subreddit "
-            <> subreddit.name
-            <> " with "
-            <> int.to_string(member_count)
-            <> " members: ["
-            <> member_list
-            <> "]",
-          )
           let _ = process.send(reply, Ok(subreddit_with_members))
           actor.continue(state)
         }

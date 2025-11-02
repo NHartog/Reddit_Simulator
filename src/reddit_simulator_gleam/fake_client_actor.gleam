@@ -72,7 +72,6 @@ fn handle_fake_client_message(
 ) -> actor.Next(FakeClientState, FakeClientMessage) {
   case message {
     StartSimulation -> {
-      io.println("🚀 CLIENT " <> state.user_id <> ": Starting simulation")
       let new_state =
         FakeClientState(
           user_id: state.user_id,
@@ -85,7 +84,6 @@ fn handle_fake_client_message(
     }
 
     ConnectToEngine(engine) -> {
-      io.println("🔗 CLIENT " <> state.user_id <> ": Connected to master engine")
       let new_state =
         FakeClientState(
           user_id: state.user_id,
@@ -98,7 +96,6 @@ fn handle_fake_client_message(
     }
 
     ConnectToMetrics(metrics) -> {
-      io.println("📈 CLIENT " <> state.user_id <> ": Connected to metrics")
       let new_state =
         FakeClientState(
           user_id: state.user_id,
@@ -111,7 +108,6 @@ fn handle_fake_client_message(
     }
 
     StopSimulation -> {
-      io.println("⏹️ CLIENT " <> state.user_id <> ": Stopping simulation")
       let new_state =
         FakeClientState(
           user_id: state.user_id,
@@ -128,7 +124,6 @@ fn handle_fake_client_message(
     }
 
     Shutdown -> {
-      io.println("🔌 CLIENT " <> state.user_id <> ": Shutting down")
       actor.stop()
     }
   }
@@ -140,9 +135,6 @@ fn handle_perform_action(
 ) -> actor.Next(FakeClientState, FakeClientMessage) {
   case state.master_engine {
     None -> {
-      io.println(
-        "❌ CLIENT " <> state.user_id <> ": No master engine connection",
-      )
       actor.continue(state)
     }
     Some(engine) -> {
@@ -195,7 +187,8 @@ fn perform_create_post(
   let reply = process.new_subject()
   let message = CreatePost(reply, title, content, state.user_id, subreddit_id)
 
-  // Metrics enqueue (use simple 0ms base for now)
+  // Metrics enqueue - record actual timestamp
+  let enqueue_time_ms = get_time_ms()
   case state.metrics {
     Some(m) -> {
       let _ =
@@ -205,7 +198,7 @@ fn perform_create_post(
             metrics_actor.Post,
             Some(subreddit_id),
             state.user_id,
-            0,
+            enqueue_time_ms,
           ),
         )
       #()
@@ -213,13 +206,12 @@ fn perform_create_post(
     None -> #()
   }
 
-  io.println("📝 CLIENT " <> state.user_id <> ": Creating post: " <> title)
   let _ = process.send(engine, message)
 
   case process.receive(reply, 5000) {
     Ok(Ok(_post)) -> {
-      io.println("✅ CLIENT " <> state.user_id <> ": Post created successfully")
-      // Metrics complete (dummy 1ms complete)
+      // Metrics complete - record actual timestamp and calculate latency
+      let complete_time_ms = get_time_ms()
       case state.metrics {
         Some(m) -> {
           let _ =
@@ -229,8 +221,8 @@ fn perform_create_post(
                 metrics_actor.Post,
                 Some(subreddit_id),
                 state.user_id,
-                0,
-                1,
+                enqueue_time_ms,
+                complete_time_ms,
               ),
             )
           #()
@@ -239,14 +231,10 @@ fn perform_create_post(
       }
       actor.continue(state)
     }
-    Ok(Error(msg)) -> {
-      io.println(
-        "❌ CLIENT " <> state.user_id <> ": Post creation failed: " <> msg,
-      )
+    Ok(Error(_msg)) -> {
       actor.continue(state)
     }
     Error(_) -> {
-      io.println("❌ CLIENT " <> state.user_id <> ": Post creation timeout")
       actor.continue(state)
     }
   }
@@ -269,24 +257,16 @@ fn perform_create_comment(
       parent_comment_id,
     )
 
-  io.println("💬 CLIENT " <> state.user_id <> ": Creating comment")
   let _ = process.send(engine, message)
 
   case process.receive(reply, 5000) {
     Ok(Ok(_comment)) -> {
-      io.println(
-        "✅ CLIENT " <> state.user_id <> ": Comment created successfully",
-      )
       actor.continue(state)
     }
-    Ok(Error(msg)) -> {
-      io.println(
-        "❌ CLIENT " <> state.user_id <> ": Comment creation failed: " <> msg,
-      )
+    Ok(Error(_msg)) -> {
       actor.continue(state)
     }
     Error(_) -> {
-      io.println("❌ CLIENT " <> state.user_id <> ": Comment creation timeout")
       actor.continue(state)
     }
   }
@@ -301,26 +281,16 @@ fn perform_vote_on_post(
   let reply = process.new_subject()
   let message = VoteOnPost(reply, state.user_id, post_id, vote_type)
 
-  let vote_str = case vote_type {
-    Upvote -> "upvoting"
-    Downvote -> "downvoting"
-  }
-  io.println(
-    "👍 CLIENT " <> state.user_id <> ": " <> vote_str <> " post " <> post_id,
-  )
   let _ = process.send(engine, message)
 
   case process.receive(reply, 5000) {
     Ok(Ok(_)) -> {
-      io.println("✅ CLIENT " <> state.user_id <> ": Vote cast successfully")
       actor.continue(state)
     }
-    Ok(Error(msg)) -> {
-      io.println("❌ CLIENT " <> state.user_id <> ": Vote failed: " <> msg)
+    Ok(Error(_msg)) -> {
       actor.continue(state)
     }
     Error(_) -> {
-      io.println("❌ CLIENT " <> state.user_id <> ": Vote timeout")
       actor.continue(state)
     }
   }
@@ -335,35 +305,16 @@ fn perform_vote_on_comment(
   let reply = process.new_subject()
   let message = VoteOnComment(reply, state.user_id, comment_id, vote_type)
 
-  let vote_str = case vote_type {
-    Upvote -> "upvoting"
-    Downvote -> "downvoting"
-  }
-  io.println(
-    "👍 CLIENT "
-    <> state.user_id
-    <> ": "
-    <> vote_str
-    <> " comment "
-    <> comment_id,
-  )
   let _ = process.send(engine, message)
 
   case process.receive(reply, 5000) {
     Ok(Ok(_)) -> {
-      io.println(
-        "✅ CLIENT " <> state.user_id <> ": Comment vote cast successfully",
-      )
       actor.continue(state)
     }
-    Ok(Error(msg)) -> {
-      io.println(
-        "❌ CLIENT " <> state.user_id <> ": Comment vote failed: " <> msg,
-      )
+    Ok(Error(_msg)) -> {
       actor.continue(state)
     }
     Error(_) -> {
-      io.println("❌ CLIENT " <> state.user_id <> ": Comment vote timeout")
       actor.continue(state)
     }
   }
@@ -378,24 +329,16 @@ fn perform_send_direct_message(
   let reply = process.new_subject()
   let message = SendDirectMessage(reply, state.user_id, recipient_id, content)
 
-  io.println("💌 CLIENT " <> state.user_id <> ": Sending DM to " <> recipient_id)
   let _ = process.send(engine, message)
 
   case process.receive(reply, 5000) {
     Ok(Ok(_dm)) -> {
-      io.println(
-        "✅ CLIENT " <> state.user_id <> ": Direct message sent successfully",
-      )
       actor.continue(state)
     }
-    Ok(Error(msg)) -> {
-      io.println(
-        "❌ CLIENT " <> state.user_id <> ": Direct message failed: " <> msg,
-      )
+    Ok(Error(_msg)) -> {
       actor.continue(state)
     }
     Error(_) -> {
-      io.println("❌ CLIENT " <> state.user_id <> ": Direct message timeout")
       actor.continue(state)
     }
   }
@@ -409,29 +352,16 @@ fn perform_subscribe_to_subreddit(
   let reply = process.new_subject()
   let message = SubscribeToSubreddit(reply, state.user_id, subreddit_id)
 
-  io.println(
-    "➕ CLIENT "
-    <> state.user_id
-    <> ": Subscribing to subreddit "
-    <> subreddit_id,
-  )
   let _ = process.send(engine, message)
 
   case process.receive(reply, 5000) {
     Ok(Ok(_)) -> {
-      io.println(
-        "✅ CLIENT " <> state.user_id <> ": Subscribed to subreddit successfully",
-      )
       actor.continue(state)
     }
-    Ok(Error(msg)) -> {
-      io.println(
-        "❌ CLIENT " <> state.user_id <> ": Subscription failed: " <> msg,
-      )
+    Ok(Error(_msg)) -> {
       actor.continue(state)
     }
     Error(_) -> {
-      io.println("❌ CLIENT " <> state.user_id <> ": Subscription timeout")
       actor.continue(state)
     }
   }
@@ -445,31 +375,16 @@ fn perform_unsubscribe_from_subreddit(
   let reply = process.new_subject()
   let message = UnsubscribeFromSubreddit(reply, state.user_id, subreddit_id)
 
-  io.println(
-    "➖ CLIENT "
-    <> state.user_id
-    <> ": Unsubscribing from subreddit "
-    <> subreddit_id,
-  )
   let _ = process.send(engine, message)
 
   case process.receive(reply, 5000) {
     Ok(Ok(_)) -> {
-      io.println(
-        "✅ CLIENT "
-        <> state.user_id
-        <> ": Unsubscribed from subreddit successfully",
-      )
       actor.continue(state)
     }
-    Ok(Error(msg)) -> {
-      io.println(
-        "❌ CLIENT " <> state.user_id <> ": Unsubscription failed: " <> msg,
-      )
+    Ok(Error(_msg)) -> {
       actor.continue(state)
     }
     Error(_) -> {
-      io.println("❌ CLIENT " <> state.user_id <> ": Unsubscription timeout")
       actor.continue(state)
     }
   }
@@ -481,7 +396,8 @@ fn perform_get_feed(
 ) -> actor.Next(FakeClientState, FakeClientMessage) {
   let reply = process.new_subject()
   let message = GetFeed(reply, 10)
-  // Metrics enqueue for read
+  // Metrics enqueue for read - record actual timestamp
+  let enqueue_time_ms = get_time_ms()
   case state.metrics {
     Some(m) -> {
       let _ =
@@ -491,7 +407,7 @@ fn perform_get_feed(
             metrics_actor.Read,
             None,
             state.user_id,
-            0,
+            enqueue_time_ms,
           ),
         )
       #()
@@ -499,15 +415,12 @@ fn perform_get_feed(
     None -> #()
   }
 
-  io.println("📰 CLIENT " <> state.user_id <> ": Getting feed")
   let _ = process.send(engine, message)
 
   case process.receive(reply, 5000) {
     Ok(Ok(_feed)) -> {
-      io.println(
-        "✅ CLIENT " <> state.user_id <> ": Feed retrieved successfully",
-      )
-      // Metrics complete
+      // Metrics complete - record actual timestamp and calculate latency
+      let complete_time_ms = get_time_ms()
       case state.metrics {
         Some(m) -> {
           let _ =
@@ -517,8 +430,8 @@ fn perform_get_feed(
                 metrics_actor.Read,
                 None,
                 state.user_id,
-                0,
-                1,
+                enqueue_time_ms,
+                complete_time_ms,
               ),
             )
           #()
@@ -527,14 +440,10 @@ fn perform_get_feed(
       }
       actor.continue(state)
     }
-    Ok(Error(msg)) -> {
-      io.println(
-        "❌ CLIENT " <> state.user_id <> ": Feed retrieval failed: " <> msg,
-      )
+    Ok(Error(_msg)) -> {
       actor.continue(state)
     }
     Error(_) -> {
-      io.println("❌ CLIENT " <> state.user_id <> ": Feed retrieval timeout")
       actor.continue(state)
     }
   }
@@ -547,31 +456,16 @@ fn perform_get_direct_messages(
   let reply = process.new_subject()
   let message = GetDirectMessages(reply, state.user_id)
 
-  io.println("📬 CLIENT " <> state.user_id <> ": Getting direct messages")
   let _ = process.send(engine, message)
 
   case process.receive(reply, 5000) {
     Ok(Ok(_messages)) -> {
-      io.println(
-        "✅ CLIENT "
-        <> state.user_id
-        <> ": Direct messages retrieved successfully",
-      )
       actor.continue(state)
     }
-    Ok(Error(msg)) -> {
-      io.println(
-        "❌ CLIENT "
-        <> state.user_id
-        <> ": Direct messages retrieval failed: "
-        <> msg,
-      )
+    Ok(Error(_msg)) -> {
       actor.continue(state)
     }
     Error(_) -> {
-      io.println(
-        "❌ CLIENT " <> state.user_id <> ": Direct messages retrieval timeout",
-      )
       actor.continue(state)
     }
   }
@@ -580,6 +474,16 @@ fn perform_get_direct_messages(
 // =============================================================================
 // HELPER FUNCTIONS
 // =============================================================================
+
+// Get current time in milliseconds using Erlang's monotonic time
+// erlang:monotonic_time() returns nanoseconds, so we divide by 1,000,000
+fn get_time_ms() -> Int {
+  let ns = erlang_monotonic_time_ns()
+  ns / 1_000_000
+}
+
+@external(erlang, "erlang", "monotonic_time")
+fn erlang_monotonic_time_ns() -> Int
 
 fn error_to_string(err: actor.StartError) -> String {
   case err {
