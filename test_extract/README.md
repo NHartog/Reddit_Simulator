@@ -1,0 +1,235 @@
+# Reddit Simulator
+
+## Team Members
+- **Nicholas Hartog**  
+- **Sebastian Paulis**
+
+---
+
+## Overview
+This project implements a Reddit-like social media engine and simulator using Gleam. The system simulates thousands of concurrent users performing various actions such as posting, commenting, voting, subscribing to subreddits, and sending direct messages. The implementation follows a distributed actor-based architecture, separating the engine components from the client simulation components.
+
+The project demonstrates high-throughput concurrent processing, realistic workload distribution using Zipf's law, and comprehensive performance metrics tracking. The architecture is designed to scale horizontally, with independent client processes simulating thousands of users communicating with a centralized engine process.
+
+---
+
+## Architecture
+
+### Engine Components
+The engine is responsible for managing the core Reddit-like functionality:
+
+- **MasterEngineActor**: Central coordinator that routes messages to appropriate engine actors
+- **UserActor**: Manages user registration and user data
+- **PostActor**: Handles post creation and retrieval
+- **FeedActor**: Manages user feeds based on subscribed subreddits
+- **SubredditActor**: Handles subreddit creation, joining, and leaving
+- **UpvoteActor**: Manages voting (upvotes/downvotes) and karma computation
+- **CommentActor**: Handles hierarchical comment trees and comment management
+- **DirectMessageActor**: Manages direct messaging between users
+
+### Simulation Components
+The simulator generates realistic user behavior:
+
+- **MasterSimulatorActor**: Coordinates client actions and manages the simulation lifecycle
+- **FakeClientActor**: Individual client processes that simulate user behavior (thousands of these are spawned)
+
+### Data Flow
+1. Thousands of `FakeClientActor` processes simulate users performing actions
+2. Actions are sent to the `MasterSimulatorActor`
+3. The `MasterSimulatorActor` forwards requests to the `MasterEngineActor`
+4. The `MasterEngineActor` routes messages to the appropriate engine actor (UserActor, PostActor, etc.)
+5. Metrics are collected throughout the simulation for performance analysis
+
+---
+
+## Features Implemented
+
+### Core Functionality
+- **Register Account**: Users can create accounts with unique IDs
+- **Create & Join Subreddit**: Users can create new subreddits and join existing ones
+- **Leave Subreddit**: Users can unsubscribe from subreddits
+- **Post in Subreddit**: Users can create text posts in subreddits
+- **Hierarchical Comments**: Support for nested comments (comments on comments)
+- **Upvote/Downvote**: Voting system with karma computation
+- **Feed Retrieval**: Users can get personalized feeds from subscribed subreddits
+- **Direct Messages**: Send and receive direct messages between users
+- **Reposts**: Support for reposting content with configurable probability
+
+### Simulation Features
+- **High-Scale Simulation**: Simulates thousands of concurrent users
+- **Connection/Disconnection**: Models periods of live connection and disconnection
+- **Zipf Distribution**: Implements Zipf distribution for subreddit membership and activity
+- **Heterogeneous Activity**: Popular subreddits generate more posts
+- **Performance Metrics**: Comprehensive tracking of throughput, latency, and activity distribution
+
+---
+
+## Performance Metrics
+
+The simulator tracks various performance metrics throughout execution:
+
+### Workload Summary
+- Total actions performed (posts, comments, votes, feeds, messages, subscriptions)
+- Activity distribution across users (Top 1%, 5%, 10% concentration)
+- Real-time throughput measurements
+
+### Example Output
+Based on the simulation run with 10,000 clients (users):
+
+```
+Workload Summary
+  Total Actions: 123,528
+  ├─ Posts Created: 23,025
+  ├─ Comments Created: 30,794
+  ├─ Votes Cast: 38,522
+  ├─ Feed Retrievals: 15,579
+  ├─ Direct Messages: 7,827
+  └─ Subscriptions: 7,781
+
+Performance Metrics
+  Throughput (Actions/Second):
+    ├─ Posts: 49.4 posts/sec (1min avg)
+    └─ Reads (Feeds): 34.0 reads/sec (1min avg)
+  
+  Activity Concentration (Observed from Posts):
+    ├─ Top 1% of active users: 52.5% of posts
+    ├─ Top 5% of active users: 79.3% of posts
+    └─ Top 10% of active users: 85.9% of posts
+```
+
+The system consistently achieves over **2,000 actions per second** during simulation runs, demonstrating efficient concurrent processing.
+
+---
+
+## Random Seed Configuration
+
+The simulator supports deterministic and randomized runs through a configurable random seed:
+
+- **Random Seed = 0**: The system generates a random seed at runtime using system randomness
+- **Random Seed > 0**: The system uses the specified seed for reproducible, deterministic runs
+
+This allows for:
+- **Reproducible testing**: Use a fixed seed (e.g., `22`) to generate consistent results across runs
+- **Randomized testing**: Use seed `0` to test system behavior under varied conditions
+
+The seed affects:
+- User activity distribution (Zipf weights)
+- Action timing (Poisson scheduling)
+- Subreddit selection
+- Content selection (posts, comments)
+- Connection/disconnection patterns
+
+Example configuration with seed:
+```gleam
+SimulationConfig(
+  ...
+  random_seed: 22,  // Use 0 for random, or a number for deterministic
+  ...
+)
+```
+
+---
+
+## How to Run
+
+### Prerequisites
+- [Gleam](https://gleam.run) compiler installed (version >= 0.34.0)
+- Erlang/OTP installed for the Erlang backend
+
+### Steps
+
+1. **Navigate to the project directory**:
+   ```bash
+   cd reddit-simulator-gleam
+   ```
+
+2. **Compile the project**:
+   ```bash
+   gleam build
+   ```
+
+3. **Run the simulation**:
+   ```bash
+   gleam run
+   ```
+
+The simulator will run with default configuration parameters. You can modify the simulation settings in `project_4_initialization.gleam`:
+
+- `num_users`: Number of fake clients to simulate
+- `num_subreddits`: Number of subreddits to create
+- `simulation_duration_ms`: Duration of the simulation in milliseconds
+- `zipf_alpha`: Zipf distribution parameter (controls activity concentration)
+- `random_seed`: Random seed for deterministic/randomized runs (0 for random, >0 for deterministic)
+- `post_frequency`, `comment_frequency`, `vote_frequency`: Action frequency parameters
+- `repost_probability`: Probability of creating reposts
+
+### Configuration Example
+
+The default configuration creates a realistic workload:
+- Thousands of users
+- Zipf-distributed activity (most activity from a small percentage of users)
+- Real-time statistics updates
+- Connection/disconnection modeling
+
+---
+
+## Project Structure
+
+```
+src/
+├── reddit_simulator_gleam.gleam          # Main entry point
+├── reddit_simulator_gleam/
+│   ├── project_4_initialization.gleam    # System initialization and demo runner
+│   ├── master_engine_actor.gleam         # Engine coordinator
+│   ├── master_simulator_actor.gleam      # Simulator coordinator
+│   ├── user_actor.gleam                  # User management
+│   ├── post_actor.gleam                  # Post management
+│   ├── comment_actor.gleam               # Comment management
+│   ├── feed_actor.gleam                  # Feed generation
+│   ├── subreddit_actor.gleam             # Subreddit management
+│   ├── upvote_actor.gleam                # Voting and karma
+│   ├── direct_message_actor.gleam        # Direct messaging
+│   ├── fake_client_actor.gleam           # Client simulation
+│   ├── metrics_actor.gleam               # Performance metrics
+│   ├── workload_scheduler.gleam          # Zipf-based workload generation
+│   ├── engine_types.gleam                # Engine message types
+│   ├── simulation_types.gleam            # Simulation types and config
+│   └── logger_config.gleam               # Logging configuration
+└── logger_ffi.erl                        # Erlang FFI for logging
+```
+
+---
+
+## Implementation Notes
+
+### Actor-Based Design
+All components are implemented as independent OTP actors, allowing for:
+- True concurrent processing
+- Fault isolation
+- Scalable architecture
+- Message-based communication
+
+### Zipf Distribution
+The workload scheduler implements a Zipf distribution to model realistic user behavior:
+- A small percentage of users generate most of the activity
+- Subreddit popularity follows power-law distribution
+- More popular subreddits receive more posts and interactions
+
+### Performance Considerations
+- Actors use message-passing for communication, avoiding shared state
+- Metrics are collected asynchronously to minimize performance impact
+- The system supports high-throughput scenarios (2000+ actions/second)
+- Connection/disconnection modeling adds realistic network behavior
+
+---
+
+## References
+
+- Reddit API Documentation: https://www.reddit.com/dev/api/
+- Reddit Overview: https://www.oberlo.com/blog/what-is-reddit
+- Gleam Documentation: https://gleam.run
+- Zipf's Law: A statistical distribution commonly observed in natural language and social systems: https://mathworld.wolfram.com/ZipfDistribution.html
+
+---
+
+

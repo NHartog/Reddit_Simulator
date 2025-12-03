@@ -164,15 +164,12 @@ fn handle_create_post(
             )
 
           // Send message to UpvoteActor to create entry for this post
-          // Wait for confirmation to ensure entry exists before returning
           let upvote_reply = process.new_subject()
           let _ =
             process.send(
               state.upvote_actor,
               UpvoteCreateEntry(upvote_reply, post_id),
             )
-          // Wait for upvote entry creation (with timeout)
-          let _ = process.receive(upvote_reply, 1000)
 
           // Send message to FeedActor to add post to feed
           let feed_reply = process.new_subject()

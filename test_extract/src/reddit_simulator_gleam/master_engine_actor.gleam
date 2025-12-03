@@ -19,8 +19,8 @@ import reddit_simulator_gleam/engine_types.{
   SubredditCreateSubreddit, SubredditGetSubreddit,
   SubredditGetSubredditWithMembers, SubredditJoinSubreddit,
   SubredditLeaveSubreddit, SubscribeToSubreddit, UnsubscribeFromSubreddit,
-  UpvoteCreateEntry, UpvoteDownvote, UpvoteGetUpvote, UpvoteUpvote, UserGetUser,
-  UserRegisterUser, VoteOnComment, VoteOnPost,
+  UpvoteDownvote, UpvoteGetUpvote, UpvoteUpvote, UserGetUser, UserRegisterUser,
+  VoteOnComment, VoteOnPost,
 }
 import reddit_simulator_gleam/feed_actor.{create_feed_actor}
 import reddit_simulator_gleam/metrics_actor.{type MetricsMessage}
@@ -420,23 +420,9 @@ fn handle_get_post(
           let _ = process.send(reply, Ok(updated_post))
           actor.continue(state)
         }
-        Ok(Error(msg)) -> {
-          // Upvote entry doesn't exist - create it now and return with 0 votes
-          // This handles the case where entry creation was missed
-          let create_reply = process.new_subject()
-          let _ =
-            process.send(
-              state.upvote_actor,
-              UpvoteCreateEntry(create_reply, post_id),
-            )
-          let _ = process.receive(create_reply, 500)
-          // Return post with 0 votes since entry didn't exist
-          let _ = process.send(reply, Ok(post))
-          actor.continue(state)
-        }
-        Error(_) -> {
-          // Timeout getting upvote data - return post as-is
-          // This shouldn't happen normally, but handle gracefully
+        _ -> {
+          // If upvote data not available, return post as-is
+
           let _ = process.send(reply, Ok(post))
           actor.continue(state)
         }
